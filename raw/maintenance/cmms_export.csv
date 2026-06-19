@@ -1,0 +1,5 @@
+WO,Asset,Machine,Date,Downtime,MTBF_hours,Technician,Notes
+WO-5001,Cyclops,MCH-301,2025-02-10,4.5h,1820,J. Okafor,"Replaced spindle bearing PRT-2003 (Vector); rising vibration flagged by sensor"
+WO-5002,Hydra,MCH-302,2025-03-22,360 min,,M. Adeyemi,"Barrel heater band failed; zone 2 under temp, short-shot risk"
+WO-5003,Goliath,MCH-303,2025-04-05,3:00,,J. Okafor,"Scheduled spindle inspect + regrease; no parts"
+WO-5004,Cyclops,MCH-301,2025-05-01,1h30m,,P. Nguyen,"Recalibrated PRT-2005 vibration sensor (Lumen) after Feb bearing job"

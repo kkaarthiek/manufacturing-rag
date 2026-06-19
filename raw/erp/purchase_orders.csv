@@ -1,0 +1,4 @@
+PO,Supplier,Part,Qty,Unit Price,MOQ,Lead Time,Date
+PO-9001,Vector Bearings GmbH,PRT-2003,200,$42.50,100,45 days,2025-01-10
+PO-9002,Titan Alloys,4140 steel bar,50,"USD 115.00",,21 days,01/18/2025
+PO-9003,Crescent Fasteners,PRT-2004,"5,000",0.35 USD,"1,000",14 days,2025-02-02

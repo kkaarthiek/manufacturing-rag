@@ -1,0 +1,37 @@
+{
+  "plant": "Helios Plant 7",
+  "machines": [
+    {
+      "id": "MCH-301",
+      "codename": "Cyclops",
+      "type": "CNC lathe",
+      "line": "Line A",
+      "line_codename": "PEGASUS",
+      "program": "BLUEBIRD"
+    },
+    {
+      "id": "MCH-302",
+      "codename": "Hydra",
+      "type": "injection molder",
+      "line": "Line B",
+      "line_codename": "KRAKEN",
+      "program": "REDFOX"
+    },
+    {
+      "id": "MCH-303",
+      "codename": "Goliath",
+      "type": "CNC mill",
+      "line": "Line A",
+      "line_codename": "PEGASUS",
+      "program": "BLUEBIRD"
+    },
+    {
+      "id": "MCH-304",
+      "codename": "Atlas",
+      "type": "assembly robot",
+      "line": "Line C",
+      "line_codename": "TITAN-LINE",
+      "program": null
+    }
+  ]
+}

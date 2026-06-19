@@ -1,0 +1,7 @@
+=== NIGHT SHIFT MAINTENANCE LOG ===
+Feb 10: Cyclops (the lathe cell) down ~4.5 hrs. Swapped the spindle bearing,
+the Vector one (PRT-2003). Vibration had been creeping up for days.
+Mar 22: Hydra on the KRAKEN line - heater band cooked on zone 2, ~6 hours to
+sort it. Watch for short shots until temps stabilize.
+May 1: came back to Cyclops to recal the Lumen vibration sensor (about an hour
+and a half). Reading sits around 3.2 mm/s now, well under the 4.5 alarm.

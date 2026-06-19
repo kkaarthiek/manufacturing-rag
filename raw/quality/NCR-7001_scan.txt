@@ -1,0 +1,12 @@
+HEL1OS PLANT 7  --  QUAL1TY ASSURANCE  --  NON-CONFORMANCE REPORT
+========================================================================
+NCR No.: NCR-7OO1                     Date Ra1sed: 2O25-02-15
+Part No.: PRT-2OO1   (Dr1ve Shaft)
+L1ne: PEGASUS  (L1ne A)               Program: BLUEB1RD
+------------------------------------------------------------------------
+Defect Type: 0uts1de d1ameter 0vers1ze  (above the +/- O.O2 mm tol-
+erance band)
+Un1ts affected: 12
+D1sposit1on: rework    Quarant1ned 1n QA hold area ("dog house")
+F1rst-pass y1eld (FPY) for the lot: 94.2 %
+Ra1sed by: QA 1nspector (badge redacted)

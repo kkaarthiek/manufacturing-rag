@@ -1,0 +1,19 @@
+{
+  "_comment": "Offline is the zero-dependency default that runs the eval gate on every commit. To use the CHOSEN OpenAI embeddings: set provider_mode='hosted' and export OPENAI_API_KEY. embeddings/embedding_dim already record the choice (text-embedding-3-large, 3072-d).",
+  "models": {
+    "provider_mode": "offline",
+    "embeddings": "openai:text-embedding-3-large",
+    "embedding_dim": 3072,
+    "reranker": "lexical-overlap",
+    "llm": "claude-haiku-4-5",
+    "temperature": 0.0,
+    "self_consistency_n": 3
+  },
+  "thresholds": {
+    "recall_ks": [1, 3, 5, 10],
+    "abstain_score": 1.0,
+    "ingestion_recall_target": 1.0,
+    "index_coverage_target": 1.0,
+    "retrieval_recall_target": 1.0
+  }
+}

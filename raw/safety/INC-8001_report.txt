@@ -1,0 +1,9 @@
+HELIOS PLANT 7 - EHS INCIDENT REPORT
+Incident ID: INC-8001          Date: 2025-03-20
+Location: KRAKEN line, Hydra injection molder (MCH-302)
+Type: NEAR-MISS (no injury)
+Description: During a mold changeover a technician began opening the platen
+before stored hydraulic energy had been released.
+Root cause: LOTO step 4 (release of stored energy) per SOP-020 was skipped.
+Corrective action: re-train crew on SOP-020; add a hydraulic bleed-down check
+to the SOP-010 changeover checklist.

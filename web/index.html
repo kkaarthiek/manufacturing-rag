@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helios RAG</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="rail">
+    <div class="brand"><span class="logo">◆</span> Helios&nbsp;RAG</div>
+    <nav>
+      <button class="nav-btn active" data-view="chat">💬 Chat</button>
+      <button class="nav-btn" data-view="ingest">📥 Ingestion</button>
+      <button class="nav-btn" data-view="data">🗂 Ingested Data</button>
+    </nav>
+    <div class="rail-foot">
+      <div id="docCount" class="muted">— seed docs</div>
+      <div id="ingCount" class="muted">— ingested</div>
+      <div class="muted tiny">stdlib · no external deps</div>
+    </div>
+  </aside>
+
+  <main>
+    <!-- ===================== CHAT ===================== -->
+    <section id="view-chat" class="view active">
+      <header class="topbar">
+        <h1>Chat</h1>
+        <span class="badge" title="Backed by the manufacturing_rag pipeline">RAG pipeline</span>
+        <div class="actions">
+          <select id="chatMode" class="search" title="Answer mode">
+            <option value="hosted" selected>Answer (Claude Haiku)</option>
+            <option value="agentic">Answer + agentic retrieval</option>
+            <option value="deterministic">Retrieve only (offline)</option>
+          </select>
+        </div>
+      </header>
+      <div id="chatLog" class="chat-log">
+        <div class="welcome">
+          <h2>Ask your documents</h2>
+          <p class="muted">This answers only over the documents YOU ingest — grounded,
+            cited, and verified (it abstains rather than guess if the answer isn't in
+            your files). Upload files in the <b>Ingestion</b> tab, then ask here.</p>
+          <p class="muted tiny">Answers use Claude Haiku + OpenAI embeddings (real API).
+            Every number/ID is checked against your source text before it's shown.</p>
+        </div>
+      </div>
+      <form id="chatForm" class="chat-input">
+        <input id="chatBox" type="text" placeholder="Ask about suppliers, parts, SOPs, quality…" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- ===================== INGESTION (intake) ===================== -->
+    <section id="view-ingest" class="view">
+      <header class="topbar">
+        <h1>Ingestion</h1>
+        <div class="actions">
+          <button id="ingestRawBtn" class="btn ghost" title="Run the ingester over the whole raw/ tree">⚙ Ingest raw/ tree</button>
+          <label class="btn primary">⬆ Upload files
+            <input id="fileInput" type="file" multiple hidden>
+          </label>
+        </div>
+      </header>
+
+      <div class="ingest-intake">
+        <div id="dropzone" class="dropzone big">
+          <div class="dz-title">Drop files here to ingest</div>
+          <div class="muted">PDF · XLSX · DOCX · CSV · HTML · EML · TXT · JSON — auto-parsed &amp; categorized</div>
+        </div>
+        <div id="toast" class="toast"></div>
+
+        <div class="result-head">
+          <h2>Just ingested</h2>
+          <button id="gotoData" class="btn ghost">View all in Ingested Data →</button>
+        </div>
+        <div id="ingestResult" class="result-feed">
+          <div class="empty">Nothing ingested yet this session. Upload files or run the raw/ tree.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== INGESTED DATA (browse + edit) ===================== -->
+    <section id="view-data" class="view">
+      <header class="topbar">
+        <h1>Ingested Data</h1>
+        <span class="badge" id="dataBadge">0 documents</span>
+      </header>
+      <div class="ingest-body">
+        <div class="cat-panel">
+          <input id="search" class="search" type="text" placeholder="🔍 Search ingested docs…">
+          <ul id="catList" class="cat-list"></ul>
+        </div>
+        <div class="doc-panel">
+          <div id="docList" class="doc-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== EDITOR DRAWER ===================== -->
+  <div id="drawer" class="drawer">
+    <div class="drawer-head">
+      <h2 id="edTitle">Edit document</h2>
+      <button id="drawerClose" class="icon-btn">✕</button>
+    </div>
+    <div class="drawer-body">
+      <label>Doc ID <input id="edId" type="text"></label>
+      <label>Category
+        <select id="edType"></select>
+      </label>
+      <label>Title <input id="edTitleField" type="text"></label>
+      <label>Text
+        <textarea id="edText" rows="12"></textarea>
+      </label>
+      <label>Metadata (JSON)
+        <textarea id="edMeta" rows="8" spellcheck="false"></textarea>
+      </label>
+      <div id="edMetaErr" class="err-line"></div>
+      <div id="edGt" class="gt-box"></div>
+    </div>
+    <div class="drawer-foot">
+      <button id="edDelete" class="btn danger">Delete</button>
+      <div class="spacer"></div>
+      <button id="edCancel" class="btn ghost">Cancel</button>
+      <button id="edSave" class="btn primary">Save</button>
+    </div>
+  </div>
+  <div id="scrim" class="scrim"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

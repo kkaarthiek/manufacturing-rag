@@ -1,0 +1,17 @@
+From: m.adeyemi@helios.example
+To: quality@helios.example
+Cc: p.nguyen@helios.example
+Date: Tue, 25 Mar 2025 14:08:11 -0500
+Subject: RE: Short shots on REDFOX housing covers (NCR-7002)
+Message-ID: <ncr7002-2025@helios.example>
+
+Confirming the NCR. Raising NCR-7002 against PRT-2002 (housing cover) on the
+KRAKEN line. 8 units short-shot, dispositioned SCRAP. FPY on the lot was 96.5%.
+Pretty sure its the zone-2 heater band from WO-5002 - temps never reached
+setpoint. See troubleshooting guide TG-001 for the short-shot checklist.
+
+-- Marcus
+
+> On Mar 25, 2025, M. Quality wrote:
+> Are the short shots from the squeeze on Hydra? How many parts?
+> Do we scrap or rework?

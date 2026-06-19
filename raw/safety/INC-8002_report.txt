@@ -1,0 +1,8 @@
+HELIOS PLANT 7 - EHS INCIDENT REPORT
+Incident ID: INC-8002          Date: 2025-04-12
+Location: Raw-material warehouse
+Type: Minor property damage (no injury)
+Description: A forklift contacted a pallet rack while reversing, dislodging
+packaging. No parts damaged.
+Root cause: blind corner with no convex mirror.
+Corrective action: install mirror; repaint floor lanes.

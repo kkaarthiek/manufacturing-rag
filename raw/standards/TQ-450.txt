@@ -1,0 +1,10 @@
+TQ-450 Fastener Torque Practice (SYNTHETIC - paraphrased)
+                                                                    [p. 1]
+TQ-450 recommends that threaded fasteners be tightened to the torque specified
+by the controlling work instruction, held within a tolerance band of +/-5% of
+the nominal value, and re-checked after 24 hours of service to detect
+relaxation.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - page 1 - -
+Lubricated and dry threads are treated as different conditions and must not
+share a torque value.
+                                                                    [p. 2]

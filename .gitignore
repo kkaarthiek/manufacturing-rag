@@ -1,0 +1,21 @@
+# secrets — NEVER commit
+.env
+.env.*
+*.key
+
+# runtime / regenerable artifacts
+manufacturing_rag/_artifacts/
+ingested.jsonl
+corpus.backup.jsonl
+raw/inbox/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.db
+
+# os
+.DS_Store
+Thumbs.db

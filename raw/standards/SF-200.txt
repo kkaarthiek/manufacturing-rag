@@ -1,0 +1,5 @@
+SF-200 Hazardous-Energy Control (SYNTHETIC - paraphrased)
+SF-200 requires that, before any servicing where unexpected start-up could cause
+harm, all energy sources be isolated, locked, and tagged; that stored energy be
+released or restrained; and that a zero-energy verification be performed before
+work. SF-200 is implemented at Plant 7 through SOP-020.

@@ -1,0 +1,14 @@
+MATERIAL DATASHEET
+4140 Alloy Steel (Chromium-Molybdenum), quenched & tempered
+-----------------------------------------------------------
+| Property                 | Value      |
+|--------------------------|------------|
+| Ultimate tensile (UTS)   | 655 MPa    |
+| Yield strength           | 415 MPa    |
+| Density                  | 7.85 g/cm3 |
+| Elongation               | 25.7 %     |
+| Hardness (Brinell)       | 197 HB     |
+-----------------------------------------------------------
+Used for: PRT-2001 drive shaft.
+Footnote: Mechanical properties only. Thermal properties (incl. melting point)
+are NOT listed on this sheet.

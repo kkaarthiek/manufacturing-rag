@@ -1,0 +1,11 @@
+=== DATASHEET 1 ===========================================
+PA66 (Nylon 6/6), unfilled injection grade
+Density: 1.14 g/cm3   Tensile strength: 80 MPa
+Melt processing temperature: 255 °C   Mold shrinkage: 1.5 %
+Used for: PRT-2002 housing cover (REDFOX program).
+
+=== DATASHEET 2 ===========================================
+6061-T6 Aluminum alloy
+Ultimate tensile: 310 MPa   Yield: 276 MPa
+Density: 2.70 g/cm3   Elongation: 12 %   Hardness: 95 HB
+Used for: PRT-2007 mounting bracket.

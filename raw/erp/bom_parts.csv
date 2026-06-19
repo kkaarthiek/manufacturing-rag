@@ -1,0 +1,8 @@
+part_id,description,material,dim_length,dim_od,tolerance,supplier,used_on,program
+PRT-2001,Drive Shaft,4140 steel,250 mm,30 mm,+/-0.02 mm,SUP-101,MCH-301,BLUEBIRD
+PRT-2002,Housing Cover,PA66,,,,Pacific Polymers,MCH-302,REDFOX
+PRT-2003,Precision Bearing,,bore 30 mm,OD 62 mm,,Vector Bearings GmbH,MCH-301; MCH-303,
+PRT-2004,Hex Bolt M10x40,Steel 8.8,40 mm,,,SUP-104,multiple,BLUEBIRD
+PRT-2005,Vibration Sensor,,,,,SUP-105,MCH-301,
+PRT-2006,PTFE Gasket,PTFE,,OD 60 mm,,SUP-102,REDFOX assy,
+PRT-2007,Aluminum Bracket,6061-T6 aluminum,,,,Titan Alloys,MCH-304,TITAN-LINE

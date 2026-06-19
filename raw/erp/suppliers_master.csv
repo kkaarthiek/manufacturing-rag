@@ -1,0 +1,7 @@
+﻿supplier_id,Name, country ,Products,Lead Time,contact_email
+SUP-101, Titan Alloys Inc. , U.S.A. ,"4140 steel bar; 6061 aluminum billet",21 days,orders@titanalloys.example
+SUP-102,Pacific Polymers Ltd.,USA,"PA66 pellets; PTFE seal stock",5 weeks,sales@pacificpolymers.example
+SUP-103,Vector Bearings GmbH,Germany,precision bearings,45 days,export@vectorbearings.example
+SUP-104,"Crescent Fasteners, Co.",Mexico,"hex bolts; fasteners",14 days,ventas@crescentfasteners.example
+SUP-105,Lumen Sensors Corp.,United States,"vibration sensors; thermocouples",28 days,
+SUP-104,"Crescent Fasteners, Co.",MX,"hex bolts; fasteners",2 weeks,ventas@crescentfasteners.example
