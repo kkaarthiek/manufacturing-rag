@@ -70,7 +70,7 @@ def _hosted_report(cfg, g):
     print("=" * 74)
 
 
-def run(strict: bool = False, hosted: bool = False) -> int:
+def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
     cfg = load_config()
     print("=" * 74)
     print("MANUFACTURING RAG - EVAL GATE BOARD")
@@ -302,14 +302,58 @@ def run(strict: bool = False, hosted: bool = False) -> int:
         print("\nPHASE 6 - SYSTEM EVAL")
         print(_bar("adversarial suite", "FAIL", f"error: {e}"))
 
+    # ---------- RAGAS external audit (--ragas flag) ----------
+    ragas_pass = True  # default True so --strict without --ragas is unaffected
+    if ragas:
+        print("\nRAGAS EXTERNAL AUDIT   (NLI faithfulness + context recall; independent second opinion)")
+        try:
+            from .ragas_eval import ragas_report
+            # enable Haiku synthesis for RAGAS dataset collection when --hosted
+            if hosted:
+                cfg.models.provider_mode = "hosted"
+            rr = ragas_report(stores, g, cfg)
+            top_err = rr.get("error")
+            sc_err  = rr.get("scores", {}).get("error") if isinstance(rr.get("scores"), dict) else None
+            if top_err or sc_err:
+                print(_bar("RAGAS eval", "FAIL", str(top_err or sc_err)))
+                ragas_pass = False
+            else:
+                sc = rr["scores"]
+                def _f(k): return sc.get(k)
+                def _fmt(v): return f"{v:.3f}" if v is not None else "n/a"
+                faith = _f("faithfulness")
+                cr    = _f("context_recall")
+                cp    = _f("context_precision")
+                ar    = _f("answer_relevancy")
+                faith_pass = faith is not None and faith >= 1.0
+                rec_pass   = cr    is not None and cr   >= 0.98
+                ragas_pass = faith_pass and rec_pass
+                print(_bar("faithfulness (NLI entailment per claim)", "PASS" if faith_pass else "FAIL",
+                           f"{_fmt(faith)}  target=1.0  |  scored {rr['n_scoreable']}/{rr['n_total']} q's"))
+                print(_bar("context_recall (gold inferable from ctx)", "PASS" if rec_pass else "FAIL",
+                           f"{_fmt(cr)}  target>=0.98"))
+                print(_bar("context_precision (relevant ranked first)", "BASE", _fmt(cp)))
+                print(_bar("answer_relevancy  (completeness signal)",   "BASE", _fmt(ar)))
+                abs_ok = rr["abstain_ok"] == rr["abstain_n"]
+                print(_bar("unanswerable -> abstained", "PASS" if abs_ok else "FAIL",
+                           f"{rr['abstain_ok']}/{rr['abstain_n']}"))
+                if rr["n_skipped"]:
+                    print(f"        ({rr['n_skipped']} q skipped: partial/offline/unanswerable"
+                          " — add --hosted for full synthesis coverage)")
+        except Exception as e:
+            print(_bar("RAGAS eval", "FAIL", f"error: {e}"))
+            ragas_pass = False
+
     # ---------- verdict ----------
     print("\n" + "=" * 74)
+    ragas_str = f" | RAGAS:{'PASS' if ragas_pass else 'FAIL'}" if ragas else ""
     print(f"P0:{'OK' if foundation_ok else 'X'} | "
           f"P1:{'PASS' if p1_pass else 'FAIL'} | P2:{'PASS' if p2_pass else 'FAIL'} | "
           f"P3:{'PASS' if p3_pass else 'FAIL'} | P4:{'PASS' if p4_pass else 'FAIL'} | "
-          f"P5:{'PASS' if p5_pass else 'FAIL'} | P6:{'PASS' if p6_pass else 'FAIL'}")
+          f"P5:{'PASS' if p5_pass else 'FAIL'} | P6:{'PASS' if p6_pass else 'FAIL'}"
+          + ragas_str)
     allp = (foundation_ok and p1_pass and p2_pass and p3_pass and p4_pass
-            and p5_pass and p6_pass)
+            and p5_pass and p6_pass and (ragas_pass if ragas else True))
     if allp:
         print("FINAL ACCEPTANCE (vs Phase-0 bar): high recall (floor 1.0) + calibrated "
               "abstention (13/13 + 59/59) + zero confident-wrong (faithfulness 1.0). SIGNED OFF.")
@@ -326,12 +370,18 @@ def run(strict: bool = False, hosted: bool = False) -> int:
     if strict:
         built_gates_ok = (foundation_ok and p1_pass and p2_pass and p3_pass
                           and p4_pass and p5_pass and p6_pass)
+        if ragas:
+            built_gates_ok = built_gates_ok and ragas_pass
         return 0 if built_gates_ok else 1
     return 0 if foundation_ok else 1
 
 
 def main():
-    sys.exit(run(strict="--strict" in sys.argv, hosted="--hosted" in sys.argv))
+    sys.exit(run(
+        strict="--strict" in sys.argv,
+        hosted="--hosted" in sys.argv,
+        ragas="--ragas"  in sys.argv,
+    ))
 
 
 if __name__ == "__main__":
