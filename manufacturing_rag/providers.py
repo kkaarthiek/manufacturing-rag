@@ -252,6 +252,60 @@ class AnthropicLLM(LLM):
                        if b.get("type") == "text")
 
 
+class OpenAILLM(LLM):
+    """GPT inference via the OpenAI Chat Completions REST API (stdlib urllib).
+
+    Drop-in replacement for AnthropicLLM. Key from OPENAI_API_KEY env var.
+    Prompt caching is not available here (GPT-4o has no ephemeral cache_control),
+    so cache_system is accepted but ignored.
+    """
+    ENDPOINT = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(self, model: str = "gpt-4o", api_key: str | None = None,
+                 max_tokens: int = 4096, timeout: int = 120):
+        self.model, self.max_tokens, self.timeout = model, max_tokens, timeout
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ProviderError(
+                "OPENAI_API_KEY not set. Export it to use OpenAI inference, "
+                "or set models.provider_mode='offline'.")
+
+    def complete(self, prompt: str, system: str = "", temperature: float = 0.0,
+                 cache_system: bool = True) -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        body = {"model": self.model, "max_tokens": self.max_tokens,
+                "temperature": temperature, "messages": messages}
+        return self._post(body)
+
+    def vision(self, prompt: str, image_png: bytes, system: str = "",
+               media_type: str = "image/png") -> str:
+        import base64
+        b64 = base64.standard_b64encode(image_png).decode("ascii")
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": [
+            {"type": "image_url",
+             "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+            {"type": "text", "text": prompt or "Transcribe or describe this image."},
+        ]})
+        body = {"model": self.model, "max_tokens": self.max_tokens,
+                "temperature": 0.0, "messages": messages}
+        return self._post(body)
+
+    def _post(self, body: dict) -> str:
+        req = urllib.request.Request(
+            self.ENDPOINT, data=json.dumps(body).encode("utf-8"), method="POST",
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            data = json.load(r)
+        return data["choices"][0]["message"]["content"]
+
+
 # --------------------------------------------------------------------------- #
 # Factory (config-driven)
 # --------------------------------------------------------------------------- #
@@ -285,21 +339,25 @@ def get_reranker(cfg: Config) -> Reranker:
 
 
 def get_llm(cfg: Config) -> LLM:
-    """Offline => deterministic stub (gate stays dependency-free); hosted
-    'claude-*' or 'anthropic:<model>' => Claude via REST."""
+    """Offline => deterministic stub (gate stays dependency-free).
+    Hosted: 'claude-*' / 'anthropic:<m>' => AnthropicLLM;
+            'gpt-*'    / 'openai:<m>'    => OpenAILLM."""
     name = cfg.models.llm
     if cfg.models.provider_mode == "offline" or name == "rule-stub":
         return RuleStubLLM()
     if name.startswith("anthropic:") or name.startswith("claude"):
         model = name.split(":", 1)[1] if name.startswith("anthropic:") else name
         return AnthropicLLM(model=model)
+    if name.startswith("openai:") or name.startswith("gpt"):
+        model = name.split(":", 1)[1] if name.startswith("openai:") else name
+        return OpenAILLM(model=model)
     raise ProviderError(
         f"LLM '{name}' not wired for provider_mode='{cfg.models.provider_mode}'. "
-        f"Use 'claude-haiku-4-5' (hosted) or 'rule-stub' (offline).")
+        f"Use 'gpt-4o' / 'claude-haiku-4-5' (hosted) or 'rule-stub' (offline).")
 
 
 __all__ = [
     "Embedder", "HashingEmbedder", "OpenAIEmbedder", "Reranker", "LexicalReranker",
-    "LLMReranker", "LLM", "RuleStubLLM", "AnthropicLLM", "ProviderError",
+    "LLMReranker", "LLM", "RuleStubLLM", "AnthropicLLM", "OpenAILLM", "ProviderError",
     "get_embedder", "get_reranker", "get_llm", "tokenize",
 ]

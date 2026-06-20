@@ -5,7 +5,7 @@
     "embeddings": "openai:text-embedding-3-large",
     "embedding_dim": 3072,
     "reranker": "lexical-overlap",
-    "llm": "claude-haiku-4-5",
+    "llm": "gpt-4o",
     "temperature": 0.0,
     "self_consistency_n": 3
   },

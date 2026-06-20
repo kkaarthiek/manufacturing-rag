@@ -91,10 +91,10 @@ def collect_dataset(stores, g, cfg, k: int = 10) -> list[dict]:
       - answerable questions where synthesis couldn't complete (partial / offline)
       - false-abstentions on answerable questions (flagged, not penalised here)
     """
-    from ..retrieval.router import Retriever
+    from ..retrieval.agent import AgenticRetriever
     from ..providers import get_llm, RuleStubLLM
 
-    retriever = Retriever(cfg, stores)
+    retriever = AgenticRetriever(cfg, stores)
     try:
         llm = get_llm(cfg)
     except Exception:
@@ -103,18 +103,23 @@ def collect_dataset(stores, g, cfg, k: int = 10) -> list[dict]:
     rows = []
     for q in g.questions:
         is_answerable = q.get("answerable", True)
-        evidence, _cov, _ = retriever.retrieve(q["question"], k=k)
-        contexts = [
-            (e.content if isinstance(e.content, str) else str(e.content))
-            for e in evidence if e.content
-        ] or ["(no context retrieved)"]
-
-        answer_text, status = _get_answer(q["question"], stores, evidence, llm)
+        try:
+            evidence, _cov, _ = retriever.retrieve(q["question"], k=k)
+            contexts = [
+                (e.content if isinstance(e.content, str) else str(e.content))
+                for e in evidence if e.content
+            ] or ["(no context retrieved)"]
+            answer_text, status = _get_answer(q["question"], stores, evidence, llm)
+        except Exception as exc:
+            # API error (e.g. depleted credits, network) — skip gracefully
+            contexts = ["(retrieval error)"]
+            answer_text, status = None, f"error:{type(exc).__name__}"
 
         skip = (
-            not is_answerable          # handle abstention separately
-            or status == "partial"     # incomplete answer — don't penalise
-            or (status == "abstained" and is_answerable)  # false abstention — flag only
+            not is_answerable
+            or status == "partial"
+            or status.startswith("error:")
+            or (status == "abstained" and is_answerable)
         )
 
         rows.append({
@@ -133,11 +138,11 @@ def collect_dataset(stores, g, cfg, k: int = 10) -> list[dict]:
 # ------------------------------------------------------------------- scoring -
 
 def _make_judge(cfg):
-    """Build a Haiku-backed LangchainLLMWrapper for RAGAS."""
-    from langchain_anthropic import ChatAnthropic
+    """Build a GPT-4o-backed LangchainLLMWrapper for RAGAS scoring."""
+    from langchain_openai import ChatOpenAI
     from ragas.llms import LangchainLLMWrapper
     return LangchainLLMWrapper(
-        ChatAnthropic(model=cfg.models.llm, temperature=0, max_tokens=4096)
+        ChatOpenAI(model="gpt-4o", temperature=0, max_tokens=4096)
     )
 
 
