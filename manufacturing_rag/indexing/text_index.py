@@ -31,12 +31,16 @@ def rrf_fuse(*ranked_lists, k: int = 60):
 
 
 class TextIndex:
-    def __init__(self, embedder: Embedder):
+    def __init__(self, embedder: Embedder, qdrant_store=None):
+        """qdrant_store: optional QdrantVectorStore instance. When provided,
+        vectors are persisted there instead of in self.vecs (which stays empty).
+        BM25 state always lives in-memory regardless."""
         self.embedder = embedder
+        self._qdrant = qdrant_store   # QdrantVectorStore | None
         self.ids: list[str] = []
         self.texts: list[str] = []
         self.meta: list[dict] = []
-        self.vecs: list[list[float]] = []
+        self.vecs: list[list[float]] = []   # populated only when _qdrant is None
         # bm25 state
         self._tf: list[Counter] = []
         self._dl: list[int] = []
@@ -51,7 +55,15 @@ class TextIndex:
 
     def build(self):
         """Finalize embeddings + BM25 stats (call once after all add())."""
-        self.vecs = self.embedder.embed(self.texts) if self.texts else []
+        if self.texts:
+            vecs = self.embedder.embed(self.texts)
+            if self._qdrant:
+                self._qdrant.upsert_batch(self.ids, vecs, self.meta)
+                self.vecs = []       # don't hold in RAM when Qdrant owns them
+            else:
+                self.vecs = vecs
+        else:
+            self.vecs = []
         self._tf = [Counter(tokenize(t)) for t in self.texts]
         self._dl = [sum(c.values()) for c in self._tf]
         self._avgdl = (sum(self._dl) / len(self._dl)) if self._dl else 0.0
@@ -65,9 +77,11 @@ class TextIndex:
 
     # ---- lanes ----
     def _vector(self, query: str, k: int):
+        q = self.embedder.embed([query])[0]
+        if self._qdrant:
+            return self._qdrant.search(q, k)
         if not self.vecs:
             return []
-        q = self.embedder.embed([query])[0]
         sims = [(self.ids[i], sum(a * b for a, b in zip(q, v)))
                 for i, v in enumerate(self.vecs)]
         sims.sort(key=lambda x: x[1], reverse=True)
@@ -97,15 +111,22 @@ class TextIndex:
     def add_unit(self, unit_id: str, text: str, metadata: dict):
         """Incremental add (spec 6.11): embed ONLY this unit, recompute BM25 stats.
         Idempotent — replaces an existing unit_id. No re-embedding of the corpus."""
+        vec = self.embedder.embed([text])[0]
         if unit_id in self.ids:
             i = self.ids.index(unit_id)
             self.texts[i], self.meta[i] = text, metadata
-            self.vecs[i] = self.embedder.embed([text])[0]
+            if self._qdrant:
+                self._qdrant.upsert(unit_id, vec, metadata)
+            else:
+                self.vecs[i] = vec
         else:
             self.ids.append(unit_id)
             self.texts.append(text)
             self.meta.append(metadata)
-            self.vecs.append(self.embedder.embed([text])[0])
+            if self._qdrant:
+                self._qdrant.upsert(unit_id, vec, metadata)
+            else:
+                self.vecs.append(vec)
         self._reindex_bm25()
 
     def _reindex_bm25(self):
@@ -127,15 +148,22 @@ class TextIndex:
 
     # ---- persistence ----
     def save(self, path: str | Path):
+        """Persist index metadata + (if not using Qdrant) vectors to JSON.
+        With Qdrant, vectors are already persisted in the DB; JSON only carries
+        ids/texts/meta so restarts don't re-embed."""
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         data = {"ids": self.ids, "texts": self.texts, "meta": self.meta,
-                "vecs": self.vecs}
+                "qdrant": bool(self._qdrant)}
+        if not self._qdrant:
+            data["vecs"] = self.vecs
         Path(path).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def load(self, path: str | Path):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         self.ids, self.texts, self.meta = data["ids"], data["texts"], data["meta"]
-        self.vecs = data["vecs"]
+        if "vecs" in data:
+            self.vecs = data["vecs"]
+        # vectors not in JSON when Qdrant was used — _qdrant already set in __init__
         # rebuild BM25 stats (cheap)
         self._tf = [Counter(tokenize(t)) for t in self.texts]
         self._dl = [sum(c.values()) for c in self._tf]

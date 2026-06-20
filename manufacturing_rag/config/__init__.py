@@ -74,6 +74,7 @@ class Paths:
     ingestion_ground_truth: str = str(REPO_ROOT / "raw" / "INGESTION_GROUND_TRUTH.jsonl")
     question_gold: str = str(REPO_ROOT / "questions.jsonl")
     artifacts: str = str(PACKAGE_ROOT / "_artifacts")  # built stores live here
+    qdrant_path: str = str(PACKAGE_ROOT / "_artifacts" / "qdrant")  # Qdrant on-disk storage
 
 
 @dataclass
@@ -85,6 +86,7 @@ class Models:
     embedding_dim: int = 3072
     reranker: str = "lexical-overlap"
     llm: str = "claude-haiku-4-5"             # chosen; active only when provider_mode='hosted'
+    vector_store: str = "flat"                # flat (in-memory JSON) | qdrant (persistent DB)
     temperature: float = 0.0                  # spec: every LLM step at temp 0
     self_consistency_n: int = 3               # N runs, require agreement
 

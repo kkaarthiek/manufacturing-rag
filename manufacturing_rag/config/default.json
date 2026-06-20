@@ -6,6 +6,7 @@
     "embedding_dim": 3072,
     "reranker": "lexical-overlap",
     "llm": "gpt-4o",
+    "vector_store": "qdrant",
     "temperature": 0.0,
     "self_consistency_n": 3
   },
