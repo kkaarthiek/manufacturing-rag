@@ -85,12 +85,13 @@ class QdrantVectorStore:
             self.client.upsert(collection_name=self.collection, points=points)
 
     def search(self, query_vec: list[float], k: int) -> list[tuple[str, float]]:
-        hits = self.client.search(
+        # qdrant-client 1.x uses query_points() — .search() was removed in 1.0
+        result = self.client.query_points(
             collection_name=self.collection,
-            query_vector=query_vec,
+            query=query_vec,
             limit=k,
         )
-        return [(h.payload["_uid"], h.score) for h in hits]
+        return [(p.payload["_uid"], p.score) for p in result.points]
 
     def count(self) -> int:
         return self.client.count(self.collection).count

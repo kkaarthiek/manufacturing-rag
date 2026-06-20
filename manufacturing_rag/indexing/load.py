@@ -108,9 +108,11 @@ def _make_graph(cfg: Config):
     )
 
 
-def _make_qdrant(cfg: Config, collection: str):
-    """Return a QdrantVectorStore when vector_store='qdrant', else None."""
-    if getattr(cfg.models, "vector_store", "flat") != "qdrant":
+def _make_qdrant(cfg: Config, collection: str, persist: bool = True):
+    """Return a QdrantVectorStore when vector_store='qdrant' AND persist=True.
+    Non-persistent builds (stats/report passes) use flat in-memory to avoid
+    locking the Qdrant storage folder while another build holds it open."""
+    if not persist or getattr(cfg.models, "vector_store", "flat") != "qdrant":
         return None
     from .vector import QdrantVectorStore
     return QdrantVectorStore(
@@ -123,7 +125,7 @@ def _make_qdrant(cfg: Config, collection: str):
 def build_empty_index(cfg: Config) -> tuple[Stores, dict]:
     """Fresh/real-data mode: empty stores, no synthetic corpus. The System then
     ingests the user's real uploads incrementally (spec 6.11)."""
-    text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "live_index"))
+    text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "live_index", persist=True))
     text.build()                                        # finalize empty BM25 state
     stores = Stores(StructuredStore(None), _make_graph(cfg), text, {},
                     alias_map={}, doc_ids=set(), parent_of={})
@@ -143,7 +145,7 @@ def build_index(cfg: Config, persist: bool = False, derive: bool = False,
 
     structured = StructuredStore(str(art / "structured.db") if persist else None)
     graph = _make_graph(cfg)
-    text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "eval_index"))
+    text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "eval_index", persist=persist))
     originals: dict[str, str] = {}
 
     # --- graph: seed entities/edges from master, then doc-mention entities ---
