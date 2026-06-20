@@ -69,7 +69,8 @@ def _hosted_report(cfg, g):
     print("=" * 74)
 
 
-def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
+def run(strict: bool = False, hosted: bool = False, ragas: bool = False,
+        deepeval: bool = False) -> int:
     cfg = load_config()
     print("=" * 74)
     print("MANUFACTURING RAG - EVAL GATE BOARD")
@@ -339,16 +340,57 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
             print(_bar("RAGAS eval", "FAIL", f"error: {e}"))
             ragas_pass = False
 
+    # ---------- DeepEval external audit (--deepeval flag) ----------
+    deepeval_pass = True
+    if deepeval:
+        print("\nDEEPEVAL EXTERNAL AUDIT   (pragmatic faithfulness + contextual metrics; second opinion)")
+        try:
+            from .deepeval_eval import deepeval_report
+            dr = deepeval_report(stores, g, cfg)
+            top_err = dr.get("error")
+            sc_err  = dr.get("scores", {}).get("error") if isinstance(dr.get("scores"), dict) else None
+            if top_err or sc_err:
+                print(_bar("DeepEval", "FAIL", str(top_err or sc_err)))
+                deepeval_pass = False
+            else:
+                sc = dr["scores"]
+                def _df(k): return sc.get(k)
+                def _dfmt(v): return f"{v:.3f}" if v is not None else "n/a"
+                faith = _df("Faithfulness")
+                cr    = _df("Contextual Recall")
+                cp    = _df("Contextual Precision")
+                ar    = _df("Answer Relevancy")
+                faith_pass = faith is not None and faith >= 0.9
+                rec_pass   = cr    is not None and cr   >= 0.9
+                deepeval_pass = faith_pass and rec_pass
+                print(_bar("faithfulness (no-contradiction per claim)", "PASS" if faith_pass else "FAIL",
+                           f"{_dfmt(faith)}  target>=0.9  |  scored {dr['n_scoreable']}/{dr['n_total']} q's"))
+                print(_bar("contextual recall (gold in retrieved ctx)", "PASS" if rec_pass else "FAIL",
+                           f"{_dfmt(cr)}  target>=0.9"))
+                print(_bar("contextual precision (relevant ranked first)", "BASE", _dfmt(cp)))
+                print(_bar("answer relevancy  (completeness signal)",     "BASE", _dfmt(ar)))
+                abs_ok = dr["abstain_ok"] == dr["abstain_n"]
+                print(_bar("unanswerable -> abstained", "PASS" if abs_ok else "FAIL",
+                           f"{dr['abstain_ok']}/{dr['abstain_n']}"))
+                if dr["n_skipped"]:
+                    print(f"        ({dr['n_skipped']} q skipped: partial/unanswerable)")
+        except Exception as e:
+            print(_bar("DeepEval", "FAIL", f"error: {e}"))
+            deepeval_pass = False
+
     # ---------- verdict ----------
     print("\n" + "=" * 74)
-    ragas_str = f" | RAGAS:{'PASS' if ragas_pass else 'FAIL'}" if ragas else ""
+    ragas_str    = f" | RAGAS:{'PASS' if ragas_pass else 'FAIL'}"       if ragas    else ""
+    deepeval_str = f" | DEEPEVAL:{'PASS' if deepeval_pass else 'FAIL'}" if deepeval else ""
     print(f"P0:{'OK' if foundation_ok else 'X'} | "
           f"P1:{'PASS' if p1_pass else 'FAIL'} | P2:{'PASS' if p2_pass else 'FAIL'} | "
           f"P3:{'PASS' if p3_pass else 'FAIL'} | P4:{'PASS' if p4_pass else 'FAIL'} | "
           f"P5:{'PASS' if p5_pass else 'FAIL'} | P6:{'PASS' if p6_pass else 'FAIL'}"
-          + ragas_str)
+          + ragas_str + deepeval_str)
     allp = (foundation_ok and p1_pass and p2_pass and p3_pass and p4_pass
-            and p5_pass and p6_pass and (ragas_pass if ragas else True))
+            and p5_pass and p6_pass
+            and (ragas_pass    if ragas    else True)
+            and (deepeval_pass if deepeval else True))
     if allp:
         print("FINAL ACCEPTANCE (vs Phase-0 bar): high recall (floor 1.0) + calibrated "
               "abstention (13/13 + 59/59) + zero confident-wrong (faithfulness 1.0). SIGNED OFF.")
@@ -367,15 +409,18 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
                           and p4_pass and p5_pass and p6_pass)
         if ragas:
             built_gates_ok = built_gates_ok and ragas_pass
+        if deepeval:
+            built_gates_ok = built_gates_ok and deepeval_pass
         return 0 if built_gates_ok else 1
     return 0 if foundation_ok else 1
 
 
 def main():
     sys.exit(run(
-        strict="--strict" in sys.argv,
-        hosted="--hosted" in sys.argv,
-        ragas="--ragas"  in sys.argv,
+        strict="--strict"   in sys.argv,
+        hosted="--hosted"   in sys.argv,
+        ragas="--ragas"     in sys.argv,
+        deepeval="--deepeval" in sys.argv,
     ))
 
 
