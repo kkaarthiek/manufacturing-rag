@@ -130,6 +130,8 @@ def run_deepeval(rows: list[dict], cfg) -> dict:
 
     # accumulate scores per metric (DeepEval exposes the display name as __name__)
     totals: dict[str, list[float]] = {m.__name__: [] for m in metrics}
+    last_err = None
+    n_errors = 0
 
     for r in scoreable:
         tc = LLMTestCase(
@@ -143,8 +145,13 @@ def run_deepeval(rows: list[dict], cfg) -> dict:
                 m.measure(tc, _show_indicator=False)
                 if m.score is not None:
                     totals[m.__name__].append(float(m.score))
-            except Exception:
-                pass   # skip failed evaluations — don't abort the whole run
+            except Exception as exc:
+                n_errors += 1
+                last_err = f"{type(exc).__name__}: {str(exc)[:120]}"
+
+    # if every single measurement failed, surface why (e.g. rate limit / quota)
+    if all(not vals for vals in totals.values()):
+        return {"error": f"all {n_errors} measurements failed — {last_err}"}
 
     return {
         name: (sum(vals) / len(vals)) if vals else None
