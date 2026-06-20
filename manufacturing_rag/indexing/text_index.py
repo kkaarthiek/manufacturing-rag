@@ -4,8 +4,8 @@ Text index (spec 7.1, 7.3) — hybrid vector + contextual-BM25.  STATUS: IMPLEME
 Indexes retrieval units (Phase-2 P2-early: canonical docs at doc granularity;
 Tranche-B/P2-late adds propositions + questions + summary nodes). Each unit
 carries the metadata schema (entity IDs, doc_type, source/provenance, version,
-trust, parent pointer). Search = RRF fusion of exact flat-vector (offline
-HashingEmbedder; OpenAI when hosted) + BM25 — the spec's recall floor.
+trust, parent pointer). Search = RRF fusion of exact flat-vector (OpenAI
+embeddings via FlatVectorIndex or Qdrant) + BM25 — the spec's recall floor.
 
 At 42 docs the vector lane is EXACT (brute-force cosine), zero approximation
 (spec 7.3). Persistable to JSON for idempotent reload.
@@ -32,11 +32,11 @@ def rrf_fuse(*ranked_lists, k: int = 60):
 
 class TextIndex:
     def __init__(self, embedder: Embedder, qdrant_store=None):
-        """qdrant_store: optional QdrantVectorStore instance. When provided,
-        vectors are persisted there instead of in self.vecs (which stays empty).
-        BM25 state always lives in-memory regardless."""
+        """qdrant_store: optional QdrantVectorStore. When set, vectors are
+        persisted there instead of self.vecs (which stays empty). BM25 always
+        lives in-memory."""
         self.embedder = embedder
-        self._qdrant = qdrant_store   # QdrantVectorStore | None
+        self._qdrant = qdrant_store
         self.ids: list[str] = []
         self.texts: list[str] = []
         self.meta: list[dict] = []
@@ -59,7 +59,7 @@ class TextIndex:
             vecs = self.embedder.embed(self.texts)
             if self._qdrant:
                 self._qdrant.upsert_batch(self.ids, vecs, self.meta)
-                self.vecs = []       # don't hold in RAM when Qdrant owns them
+                self.vecs = []
             else:
                 self.vecs = vecs
         else:
@@ -148,9 +148,8 @@ class TextIndex:
 
     # ---- persistence ----
     def save(self, path: str | Path):
-        """Persist index metadata + (if not using Qdrant) vectors to JSON.
-        With Qdrant, vectors are already persisted in the DB; JSON only carries
-        ids/texts/meta so restarts don't re-embed."""
+        """Save metadata + (if not using Qdrant) vectors to JSON.
+        With Qdrant, vectors are already on disk; JSON only carries ids/texts/meta."""
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         data = {"ids": self.ids, "texts": self.texts, "meta": self.meta,
                 "qdrant": bool(self._qdrant)}
@@ -163,7 +162,6 @@ class TextIndex:
         self.ids, self.texts, self.meta = data["ids"], data["texts"], data["meta"]
         if "vecs" in data:
             self.vecs = data["vecs"]
-        # vectors not in JSON when Qdrant was used — _qdrant already set in __init__
         # rebuild BM25 stats (cheap)
         self._tf = [Counter(tokenize(t)) for t in self.texts]
         self._dl = [sum(c.values()) for c in self._tf]

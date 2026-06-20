@@ -18,7 +18,7 @@ recall@k on gold, join integrity (no dangling edges / orphan entity refs),
 embedding sanity (consistent dims, nothing failed to embed).
 
 Multi-granularity text units + real embeddings arrive in P2-late (after Tranche
-B); until then the vector lane uses the offline HashingEmbedder.
+B); until then only the doc-level chunk is indexed in the vector lane.
 """
 
 from __future__ import annotations
@@ -98,10 +98,8 @@ def _relationship_edges(graph, rec):
 
 
 def _make_qdrant(cfg: Config, collection: str):
-    """Return a QdrantVectorStore if vector_store='qdrant' AND hosted mode.
-    Offline always uses flat in-memory (HashingEmbedder is 256-d, not 3072-d)."""
-    if (getattr(cfg.models, "vector_store", "flat") != "qdrant"
-            or cfg.models.provider_mode == "offline"):
+    """Return a QdrantVectorStore when vector_store='qdrant', else None."""
+    if getattr(cfg.models, "vector_store", "flat") != "qdrant":
         return None
     from .vector import QdrantVectorStore
     return QdrantVectorStore(

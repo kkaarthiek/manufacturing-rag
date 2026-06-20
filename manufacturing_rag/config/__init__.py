@@ -8,8 +8,7 @@ set (leaderboards don't transfer). `config/default.json` may override any field.
 Reliability knobs (spec Section 0):
   * temperature is 0 for every LLM step.
   * self_consistency_n > 1: run N times, require agreement on extraction/verify.
-  * provider_mode = "offline" runs deterministic stdlib providers (no network),
-    so the harness is runnable on every commit with zero dependencies.
+  * provider_mode = "hosted" (always) — uses real OpenAI embeddings + LLM APIs.
 """
 
 from __future__ import annotations
@@ -50,18 +49,15 @@ MODEL_REGISTRY = {
         "hosted": ["openai:text-embedding-3-large", "openai:text-embedding-3-small",
                    "voyage-4", "gemini-embedding-2", "cohere-embed-v4"],
         "local": ["qwen3-embedding", "llama-embed-nemotron-8b", "bge-m3"],
-        "offline_stub": ["hash-bow-256"],  # deterministic, stdlib
     },
     "reranker": {
         "hosted": ["cohere-rerank-3.5", "zerank-2"],
         "local": ["bge-reranker-v2-m3"],
-        "offline_stub": ["lexical-overlap"],
     },
     "llm": {
-        # CHOSEN: claude-haiku-4-5 (temp 0 + self-consistency). Key via ANTHROPIC_API_KEY.
-        "hosted": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
+        # CHOSEN: gpt-4o (OpenAI) or claude-haiku-4-5 (Anthropic). Key via API env vars.
+        "hosted": ["gpt-4o", "claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
         "local": [],
-        "offline_stub": ["rule-stub"],
     },
 }
 
@@ -79,14 +75,12 @@ class Paths:
 
 @dataclass
 class Models:
-    provider_mode: str = "offline"            # offline | local | hosted
-    # Chosen embedder. Active only when provider_mode='hosted' (needs OPENAI_API_KEY);
-    # offline mode uses the deterministic stub so the gate runs with zero deps.
+    provider_mode: str = "hosted"             # always hosted; kept for config compatibility
     embeddings: str = "openai:text-embedding-3-large"
     embedding_dim: int = 3072
-    reranker: str = "lexical-overlap"
-    llm: str = "claude-haiku-4-5"             # chosen; active only when provider_mode='hosted'
-    vector_store: str = "flat"                # flat (in-memory JSON) | qdrant (persistent DB)
+    reranker: str = "llm"
+    llm: str = "gpt-4o"
+    vector_store: str = "qdrant"              # flat (in-memory) | qdrant (persistent DB)
     temperature: float = 0.0                  # spec: every LLM step at temp 0
     self_consistency_n: int = 3               # N runs, require agreement
 

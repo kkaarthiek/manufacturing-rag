@@ -1,6 +1,5 @@
 """
-Grounded synthesis (spec 9.2).  STATUS: IMPLEMENTED (Haiku, hosted; deterministic
-offline).
+Grounded synthesis (spec 9.2).  STATUS: IMPLEMENTED.
 
 Generates the prose answer CONSTRAINED to retrieved evidence — temp 0, citing
 each source. Exact values (numbers/IDs/dates) are slot-filled verbatim from the
@@ -8,9 +7,6 @@ structured store and handed to the model; the model writes the scaffold, not the
 values. After generation, an entailment gate (spec 9.5) checks that EVERY
 number/ID in the generated answer appears in the cited evidence — a hallucinated
 value cannot ship (faithfulness preserved). On any failure -> abstain/partial.
-
-Offline (RuleStubLLM): returns no prose (status stays partial) so the zero-dep
-gate is unchanged. The LLM path activates only in hosted mode.
 """
 
 from __future__ import annotations
@@ -18,7 +14,7 @@ from __future__ import annotations
 import re
 
 from ..contracts import Claim, Answer
-from ..providers import LLM, RuleStubLLM
+from ..providers import LLM
 
 _ID = re.compile(r"\b[A-Z]{2,4}-\d{2,5}(?:-v\d+)?\b")
 # standalone numbers only — NOT digits embedded in alphanumeric tokens
@@ -73,10 +69,10 @@ def _grounded_values(text: str, evidence_blob: str) -> tuple[bool, list[str]]:
 def synthesize(query: str, evidence: list, llm: LLM, exact_values: dict | None = None,
                top_n: int = 6) -> Answer:
     """evidence: list of Evidence (Phase 3). Returns a grounded Answer or partial."""
-    if isinstance(llm, RuleStubLLM) or not evidence:
-        return Answer(text="(grounded synthesis needs the hosted LLM; offline -> partial)",
-                      claims=[], status="partial", missing=["synthesis (offline)"],
-                      trace={"synthesis": "offline-skip"})
+    if not evidence:
+        return Answer(text="No evidence retrieved; cannot synthesize an answer.",
+                      claims=[], status="abstained", missing=["no evidence"],
+                      trace={"synthesis": "no-evidence"})
 
     blocks, blob = [], []
     for e in evidence[:top_n]:

@@ -6,11 +6,10 @@ Ties the phases together: build stores (1-2) -> retrieve (3) -> verify/answer (4
 
   abstain-first (Phase-4 answerability) ->
   deterministic op (exact slot-fill / calc / count) if one matches ->
-  else GROUNDED SYNTHESIS over retrieved evidence (Haiku, hosted) ->
+  else GROUNDED SYNTHESIS over retrieved evidence (LLM, grounded) ->
   multi-part questions go through the verified-chain orchestrator.
 
-Every shipped answer is grounded-or-abstained. Offline: deterministic answers +
-abstentions (synthesis returns partial). Hosted: full natural-language answers.
+Every shipped answer is grounded-or-abstained.
 """
 
 from __future__ import annotations
@@ -33,23 +32,17 @@ from ..contracts import CanonicalDoc, StructuredRecord
 
 
 class System:
-    def __init__(self, hosted: bool = False, derive: bool | None = None,
+    def __init__(self, hosted: bool = True, derive: bool | None = None,
                  fresh: bool = False):
         self.cfg = load_config()
         self.fresh = fresh
-        if hosted:
-            self.cfg.models.provider_mode = "hosted"
-        # derive (multi-granularity) defaults to hosted (needs extraction cache)
-        derive = (self.cfg.models.provider_mode == "hosted") if derive is None else derive
+        # derive (multi-granularity) defaults to True (extraction cache needed)
+        derive = True if derive is None else derive
         self.stores, self.meta = build_index(self.cfg, persist=False, derive=derive,
                                              fresh=fresh)
         self.retriever = Retriever(self.cfg, self.stores)
         self.agent = AgenticRetriever(self.cfg, self.stores)
-        try:
-            self.llm = get_llm(self.cfg)
-        except Exception:
-            from ..providers import RuleStubLLM
-            self.llm = RuleStubLLM()
+        self.llm = get_llm(self.cfg)
         # fresh portal: load the persisted live index if present (fast, no
         # re-extraction); otherwise replay inbox uploads once and persist.
         if fresh:
@@ -126,11 +119,9 @@ class System:
         parse+classify+resolve -> add doc node + MENTIONS edges + text-index chunk
         (+ Haiku-derived propositions/questions when hosted). Idempotent, no rebuild.
         After this returns, the chat can answer over the new document."""
-        # RICH extraction: digital text + structured tables + (hosted) image
-        # captions / scanned-page OCR — robust to real-industry PDFs (spec 6.2/6.4)
-        hosted = self.cfg.models.provider_mode == "hosted"
-        rd = rich_extract(filename, raw, vision_llm=self.llm if hosted else None,
-                          hosted=hosted)
+        # RICH extraction: digital text + structured tables + image captions /
+        # scanned-page OCR — robust to real-industry PDFs (spec 6.2/6.4)
+        rd = rich_extract(filename, raw, vision_llm=self.llm, hosted=True)
         from ..ingestion.incremental import _slug
         did = _slug(filename)
         cdoc = CanonicalDoc(
@@ -186,24 +177,23 @@ class System:
             self.stores.parent_of[cid] = did
 
         derived = 0
-        # hosted: extraction pass over a CAPPED set of chunks (cost/context control)
-        if self.cfg.models.provider_mode == "hosted":
-            for ch in chunks[:6]:                       # cap: first ~6 chunks
-                try:
-                    ex = extract_chunk(self.llm, ch, n=1)
-                    _ctx, units, edges = derive_units(did, ch, ex)
-                    for u in units:
-                        self.stores.text.add_unit(u.id, u.text,
-                                                  {**base_meta, "kind": u.kind,
-                                                   "parent": did, "trust": u.trust})
-                        self.stores.parent_of[u.id] = did
-                        derived += 1
-                    for ed in edges:
-                        if (self.stores.graph.has_node(ed.src)
-                                and self.stores.graph.has_node(ed.dst)):
-                            self.stores.graph.add_edge(ed)
-                except Exception:
-                    pass
+        # extraction pass over a CAPPED set of chunks (cost/context control)
+        for ch in chunks[:6]:                           # cap: first ~6 chunks
+            try:
+                ex = extract_chunk(self.llm, ch, n=1)
+                _ctx, units, edges = derive_units(did, ch, ex)
+                for u in units:
+                    self.stores.text.add_unit(u.id, u.text,
+                                              {**base_meta, "kind": u.kind,
+                                               "parent": did, "trust": u.trust})
+                    self.stores.parent_of[u.id] = did
+                    derived += 1
+                for ed in edges:
+                    if (self.stores.graph.has_node(ed.src)
+                            and self.stores.graph.has_node(ed.dst)):
+                        self.stores.graph.add_edge(ed)
+            except Exception:
+                pass
 
         # structured tables -> per-row records (spec 6.4: tables -> per-row records
         # with header context). Exact, queryable; the markdown is also in the text.

@@ -56,12 +56,10 @@ def _get_answer(q_text: str, stores, evidence: list, llm) -> tuple[str | None, s
     """
     Return (answer_text, status).
     status: 'answered' | 'abstained' | 'partial'
-    Tries deterministic answer first; if partial, falls back to grounded synthesis
-    (hosted only — RuleStubLLM returns partial, never synthesised).
+    Tries deterministic answer first; if partial, falls back to grounded synthesis.
     """
     from ..verification.assemble import answer as det_answer
     from ..verification.synthesize import synthesize
-    from ..providers import RuleStubLLM
 
     a = det_answer(q_text, stores)
     if a.status == "abstained":
@@ -69,7 +67,7 @@ def _get_answer(q_text: str, stores, evidence: list, llm) -> tuple[str | None, s
     if a.status == "answered":
         return a.text, "answered"
     # partial — no deterministic op matched; try LLM synthesis
-    if not isinstance(llm, RuleStubLLM) and evidence:
+    if evidence:
         synth = synthesize(q_text, evidence, llm)
         if synth.status == "answered":
             return synth.text, "answered"
@@ -88,17 +86,14 @@ def collect_dataset(stores, g, cfg, k: int = 10) -> list[dict]:
 
     skip_ragas is True for:
       - unanswerable questions (abstention validated separately)
-      - answerable questions where synthesis couldn't complete (partial / offline)
+      - answerable questions where synthesis couldn't complete (partial)
       - false-abstentions on answerable questions (flagged, not penalised here)
     """
     from ..retrieval.agent import AgenticRetriever
-    from ..providers import get_llm, RuleStubLLM
+    from ..providers import get_llm
 
     retriever = AgenticRetriever(cfg, stores)
-    try:
-        llm = get_llm(cfg)
-    except Exception:
-        llm = RuleStubLLM()
+    llm = get_llm(cfg)
 
     rows = []
     for q in g.questions:

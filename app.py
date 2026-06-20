@@ -137,7 +137,7 @@ def _ingest_into_live(filename, raw):
     _INGEST_STATUS[filename] = {"state": "processing",
                                 "detail": "extracting, chunking & embedding (may take a minute for large PDFs)"}
     try:
-        rag = get_rag(hosted=True)           # build empty hosted System if needed (fast)
+        rag = get_rag()           # build empty hosted System if needed (fast)
         with _RAG_LOCK:
             res = rag.add_document(filename, raw)
         _INGEST_STATUS[filename] = {"state": "done", **res}
@@ -145,16 +145,15 @@ def _ingest_into_live(filename, raw):
         _INGEST_STATUS[filename] = {"state": "error", "detail": str(e)}
 
 
-def get_rag(hosted: bool):
+def get_rag(hosted: bool = True):
     """Lazily build + cache a FRESH (empty) System — the real-data portal answers
-    only over YOUR uploaded documents. Hosted (OpenAI emb + Haiku synthesis/vision)
-    is needed for real natural-language answers; offline only retrieves."""
-    key = "hosted" if hosted else "offline"
+    only over YOUR uploaded documents. Always uses hosted mode (OpenAI emb + LLM
+    synthesis/vision)."""
     with _RAG_LOCK:
-        if key not in _RAG:
+        if "hosted" not in _RAG:
             from manufacturing_rag.app.system import System
-            _RAG[key] = System(hosted=hosted, fresh=True)
-        return _RAG[key]
+            _RAG["hosted"] = System(fresh=True)
+        return _RAG["hosted"]
 
 
 def _citation_view(rag, doc_ids):
@@ -174,8 +173,7 @@ def chat_answer(message, mode="hosted"):
         return {"mode": mode, "status": "empty", "answer": "Ask a question.",
                 "citations": [], "claims": []}
     try:
-        hosted = mode in ("hosted", "agentic")
-        rag = get_rag(hosted)
+        rag = get_rag()
         with _RAG_LOCK:                                 # serialize store access (sqlite)
             a = rag.answer(message, mode="agentic" if mode == "agentic" else "deterministic")
     except Exception as e:                              # fail toward abstention
@@ -375,7 +373,7 @@ def _warm_up():
     in raw/inbox are ingested (chunked + embedded) automatically — loads the
     persisted index instantly if present, else ingests once and persists."""
     try:
-        rag = get_rag(hosted=True)
+        rag = get_rag()
         n = len(rag.stores.doc_ids)
         if n:
             print(f"  warm-up: {n} document(s) live in the chat pipeline.")

@@ -1,10 +1,10 @@
 {
-  "_comment": "Offline is the zero-dependency default that runs the eval gate on every commit. To use the CHOSEN OpenAI embeddings: set provider_mode='hosted' and export OPENAI_API_KEY. embeddings/embedding_dim already record the choice (text-embedding-3-large, 3072-d).",
+  "_comment": "Always hosted: OpenAI embeddings (text-embedding-3-large) + GPT-4o LLM + Qdrant vector DB. Set OPENAI_API_KEY and ANTHROPIC_API_KEY env vars before running.",
   "models": {
-    "provider_mode": "offline",
+    "provider_mode": "hosted",
     "embeddings": "openai:text-embedding-3-large",
     "embedding_dim": 3072,
-    "reranker": "lexical-overlap",
+    "reranker": "llm",
     "llm": "gpt-4o",
     "vector_store": "qdrant",
     "temperature": 0.0,

@@ -1,13 +1,9 @@
 """
-Provider interfaces + offline defaults.
+Provider interfaces — always hosted (OpenAI embeddings + GPT-4o/Haiku LLM).
 
-The spec names hosted models (Voyage/Cohere/Gemini, Claude, zerank...) but
-demands they be config-swappable. This module is that seam: an Embedder /
-Reranker / LLM interface, with deterministic OFFLINE implementations (stdlib
-only, no network) selected when provider_mode == "offline".
-
-To go hosted: set models.provider_mode = "hosted" in config and implement the
-corresponding class (raising a clear TODO until then). No call site changes.
+The spec names hosted models (Voyage/Cohere/Gemini, Claude, zerank...) and they
+are config-swappable. This module is that seam: an Embedder / Reranker / LLM
+interface dispatching to real APIs.
 
 LLM contract honors the reliability rules: temperature is forced to 0 and
 `self_consistency()` runs N times requiring agreement.
@@ -15,9 +11,7 @@ LLM contract honors the reliability rules: temperature is forced to 0 and
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
 import os
 import re
 import urllib.request
@@ -42,36 +36,11 @@ class Embedder:
         raise NotImplementedError
 
 
-class HashingEmbedder(Embedder):
-    """Deterministic bag-of-hashed-tokens embedding (the offline default).
-
-    Not semantically strong — it is a *stub* so the pipeline runs end-to-end
-    offline. Swap in a hosted embedder for real semantic recall; nothing else
-    changes because everything depends only on the Embedder interface.
-    """
-    def __init__(self, dim: int = 256):
-        self.dim = dim
-
-    def _vec(self, text: str) -> list[float]:
-        v = [0.0] * self.dim
-        for tok, n in Counter(tokenize(text)).items():
-            h = int.from_bytes(hashlib.blake2b(tok.encode(), digest_size=8).digest(), "big")
-            idx = h % self.dim
-            sign = 1.0 if (h >> 63) & 1 else -1.0
-            v[idx] += sign * (1.0 + math.log(n))
-        norm = math.sqrt(sum(x * x for x in v)) or 1.0
-        return [x / norm for x in v]
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return [self._vec(t) for t in texts]
-
-
 class OpenAIEmbedder(Embedder):
     """OpenAI embeddings via the REST API (stdlib urllib — no `openai` package).
 
     Chosen model: text-embedding-3-large (3072-d) by config. Key is read from
     the OPENAI_API_KEY env var (never hard-coded / never passed through chat).
-    Activated when models.provider_mode == 'hosted'.
     """
     ENDPOINT = "https://api.openai.com/v1/embeddings"
 
@@ -82,7 +51,7 @@ class OpenAIEmbedder(Embedder):
         if not self.api_key:
             raise ProviderError(
                 "OPENAI_API_KEY not set. Export it (e.g. setx OPENAI_API_KEY \"sk-...\") "
-                "to use OpenAI embeddings, or set models.provider_mode='offline'.")
+                "to use OpenAI embeddings.")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
@@ -110,7 +79,7 @@ class Reranker:
 
 
 class LexicalReranker(Reranker):
-    """Token-overlap rerank score in [0,1] (offline default)."""
+    """Token-overlap rerank score in [0,1] (internal fallback for LLMReranker on error)."""
     def rerank(self, query: str, docs: list[str]) -> list[float]:
         q = set(tokenize(query))
         if not q:
@@ -174,15 +143,6 @@ class LLM:
         return answer, agreed
 
 
-class RuleStubLLM(LLM):
-    """Deterministic placeholder LLM (offline). Returns a structured echo so
-    Phase-1 extraction code can be wired and tested without network. Replace
-    with a hosted LLM at temp 0 for real extraction quality."""
-    def complete(self, prompt: str, system: str = "", temperature: float = 0.0) -> str:
-        digest = hashlib.blake2b(prompt.encode(), digest_size=6).hexdigest()
-        return f"[rule-stub:{digest}] (offline placeholder - no generative output)"
-
-
 class AnthropicLLM(LLM):
     """Claude inference via the Messages REST API (stdlib urllib).
 
@@ -192,9 +152,7 @@ class AnthropicLLM(LLM):
     (cache_control: ephemeral) so re-running extraction across many chunks reuses
     the prefix (~0.1x cost on cache reads) — the "~cents/doc" target in the spec.
 
-    NOTE: raw HTTP (not the `anthropic` SDK) is a deliberate choice to honor this
-    project's stdlib-only / offline-default constraint. Swap to the SDK if that
-    constraint is lifted.
+    NOTE: raw HTTP (not the `anthropic` SDK) is deliberate; swap to the SDK if needed.
     """
     ENDPOINT = "https://api.anthropic.com/v1/messages"
     API_VERSION = "2023-06-01"
@@ -206,7 +164,7 @@ class AnthropicLLM(LLM):
         if not self.api_key:
             raise ProviderError(
                 "ANTHROPIC_API_KEY not set. Export it (e.g. setx ANTHROPIC_API_KEY \"sk-ant-...\") "
-                "to use Claude inference, or set models.provider_mode='offline'.")
+                "to use Claude inference.")
 
     def complete(self, prompt: str, system: str = "", temperature: float = 0.0,
                  cache_system: bool = True) -> str:
@@ -267,8 +225,7 @@ class OpenAILLM(LLM):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
             raise ProviderError(
-                "OPENAI_API_KEY not set. Export it to use OpenAI inference, "
-                "or set models.provider_mode='offline'.")
+                "OPENAI_API_KEY not set. Export it to use OpenAI inference.")
 
     def complete(self, prompt: str, system: str = "", temperature: float = 0.0,
                  cache_system: bool = True) -> str:
@@ -314,24 +271,17 @@ class ProviderError(NotImplementedError):
 
 
 def get_embedder(cfg: Config) -> Embedder:
-    """Dispatch on provider_mode + model name. Offline => deterministic stub
-    (keeps the eval gate dependency-free); hosted 'openai:<model>' => OpenAI."""
+    """Always uses OpenAI embeddings ('openai:<model>' in config)."""
     name = cfg.models.embeddings
-    if cfg.models.provider_mode == "offline" or name == "hash-bow-256":
-        return HashingEmbedder(dim=256)
     if name.startswith("openai:"):
         return OpenAIEmbedder(model=name.split(":", 1)[1], dim=cfg.models.embedding_dim)
     raise ProviderError(
-        f"Embedder '{name}' not wired for provider_mode='{cfg.models.provider_mode}'. "
-        f"Use 'openai:text-embedding-3-large' (hosted) or 'hash-bow-256' (offline).")
+        f"Embedder '{name}' not wired. Use 'openai:text-embedding-3-large'.")
 
 
 def get_reranker(cfg: Config) -> Reranker:
     # zerank-2 / Cohere Rerank 3.5 are the production swap targets (calibrated
-    # scores). Hosted: use the Haiku LLM reranker (with lexical fallback).
-    # Offline: deterministic lexical reranker (keeps the gate dependency-free).
-    if cfg.models.provider_mode == "offline":
-        return LexicalReranker()
+    # scores). Uses the LLM reranker (with lexical fallback on error).
     try:
         return LLMReranker(get_llm(cfg), LexicalReranker())
     except ProviderError:
@@ -339,12 +289,9 @@ def get_reranker(cfg: Config) -> Reranker:
 
 
 def get_llm(cfg: Config) -> LLM:
-    """Offline => deterministic stub (gate stays dependency-free).
-    Hosted: 'claude-*' / 'anthropic:<m>' => AnthropicLLM;
-            'gpt-*'    / 'openai:<m>'    => OpenAILLM."""
+    """'claude-*' / 'anthropic:<m>' => AnthropicLLM;
+       'gpt-*'    / 'openai:<m>'    => OpenAILLM."""
     name = cfg.models.llm
-    if cfg.models.provider_mode == "offline" or name == "rule-stub":
-        return RuleStubLLM()
     if name.startswith("anthropic:") or name.startswith("claude"):
         model = name.split(":", 1)[1] if name.startswith("anthropic:") else name
         return AnthropicLLM(model=model)
@@ -352,12 +299,11 @@ def get_llm(cfg: Config) -> LLM:
         model = name.split(":", 1)[1] if name.startswith("openai:") else name
         return OpenAILLM(model=model)
     raise ProviderError(
-        f"LLM '{name}' not wired for provider_mode='{cfg.models.provider_mode}'. "
-        f"Use 'gpt-4o' / 'claude-haiku-4-5' (hosted) or 'rule-stub' (offline).")
+        f"LLM '{name}' not wired. Use 'gpt-4o' or 'claude-haiku-4-5'.")
 
 
 __all__ = [
-    "Embedder", "HashingEmbedder", "OpenAIEmbedder", "Reranker", "LexicalReranker",
-    "LLMReranker", "LLM", "RuleStubLLM", "AnthropicLLM", "OpenAILLM", "ProviderError",
+    "Embedder", "OpenAIEmbedder", "Reranker", "LexicalReranker",
+    "LLMReranker", "LLM", "AnthropicLLM", "OpenAILLM", "ProviderError",
     "get_embedder", "get_reranker", "get_llm", "tokenize",
 ]

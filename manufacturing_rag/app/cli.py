@@ -2,7 +2,7 @@
 CLI (spec Section 8).  STATUS: IMPLEMENTED.
 
   python -m manufacturing_rag.app.cli eval [--strict]      run the gate board
-  python -m manufacturing_rag.app.cli ask "question" [--hosted] [--agentic]
+  python -m manufacturing_rag.app.cli ask "question" [--agentic]
                                                           answer a question end-to-end
 """
 
@@ -14,15 +14,14 @@ from ..eval.harness import run as run_eval
 
 
 def _ask(argv):
-    hosted = "--hosted" in argv
     agentic = "--agentic" in argv
     q = " ".join(a for a in argv if not a.startswith("--"))
     if not q:
-        print('usage: ask "your question" [--hosted] [--agentic]')
+        print('usage: ask "your question" [--agentic]')
         return 2
     from .system import System
-    print(f"[building index | mode={'hosted' if hosted else 'offline'} ...]")
-    sysm = System(hosted=hosted)
+    print("[building index (hosted) ...]")
+    sysm = System()
     a = sysm.answer(q, mode="agentic" if agentic else "deterministic")
     print("\n" + "=" * 70)
     print(f"Q: {q}")

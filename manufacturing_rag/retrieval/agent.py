@@ -1,17 +1,14 @@
 """
-Agentic retrieval mode (spec 8.7).  STATUS: IMPLEMENTED (Haiku planner; hosted).
+Agentic retrieval mode (spec 8.7).  STATUS: IMPLEMENTED.
 
 A schema-aware traverse agent: it reads the machine-readable DATA MAP, then asks
-the LLM (Haiku, temp 0) to plan retrieval ACTIONS over the real stores. It SEEDS
+the LLM (temp 0) to plan retrieval ACTIONS over the real stores. It SEEDS
 FROM THE DETERMINISTIC FLOOR and may only ADD evidence (recall never drops below
 the floor). Bounded iterations; full action trace logged; the deterministic
 coverage check (not the agent) still decides answer vs abstain.
 
 Action set the planner may emit: resolve_entity, hybrid_search,
 graph_traverse(seed, hops), sql_lookup(entity). Each maps to a real store call.
-
-Offline (RuleStubLLM): falls back to deterministic bounded graph-depth expansion,
-so the path still runs with zero deps.
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 
-from ..providers import RuleStubLLM, get_llm
+from ..providers import get_llm
 from ..contracts import Evidence
 from .router import Retriever
 from .lanes import graph_lane, hybrid_lane, structured_lane
@@ -45,10 +42,7 @@ class AgenticRetriever:
         self.stores = stores
         self.base = Retriever(cfg, stores)
         self.max_actions = max_actions
-        try:
-            self.llm = get_llm(cfg)
-        except Exception:
-            self.llm = RuleStubLLM()
+        self.llm = get_llm(cfg)
 
     def data_map(self) -> dict:
         return {
@@ -78,8 +72,6 @@ class AgenticRetriever:
         return []
 
     def _plan(self, query: str, plan) -> list[dict]:
-        if isinstance(self.llm, RuleStubLLM):
-            return []  # offline -> deterministic fallback below
         prompt = (f"QUESTION: {query}\nDATA MAP: {json.dumps(self.data_map())}\n"
                   f"RESOLVED ENTITIES: {plan.entities}\nOutput the JSON action list:")
         try:
@@ -103,7 +95,7 @@ class AgenticRetriever:
             for i, act in enumerate(actions):
                 lanes[f"act{i}:{act.get('action')}"] = self._exec(act, plan)
         else:
-            # offline / no-plan: deterministic deepening from resolved entities
+            # no-plan (LLM parse failed): deterministic deepening from resolved entities
             for d in (3, 4):
                 lanes[f"graph@{d}"] = graph_lane(self.stores, plan, depth=d, k=20)
             lanes["structured"] = structured_lane(self.stores, plan, k=20)

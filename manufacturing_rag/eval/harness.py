@@ -30,7 +30,6 @@ def _hosted_report(cfg, g):
     """On-demand (paid) P2-late report: multi-granularity index w/ real OpenAI
     embeddings + Haiku-derived units. Uses cached extractions so re-runs are cheap."""
     from ..indexing.load import build_index
-    cfg.models.provider_mode = "hosted"
     print("\n" + "=" * 74)
     print("P2-LATE (HOSTED) - multi-granularity index | OpenAI emb + Haiku extraction")
     print("=" * 74)
@@ -74,8 +73,8 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
     cfg = load_config()
     print("=" * 74)
     print("MANUFACTURING RAG - EVAL GATE BOARD")
-    print(f"  provider_mode={cfg.models.provider_mode}  embeddings={cfg.models.embeddings}  "
-          f"llm={cfg.models.llm}  temp={cfg.models.temperature}  N={cfg.models.self_consistency_n}")
+    print(f"  embeddings={cfg.models.embeddings}  llm={cfg.models.llm}  "
+          f"temp={cfg.models.temperature}  N={cfg.models.self_consistency_n}")
     print("=" * 74)
 
     # ---------- Phase 0: Foundations ----------
@@ -165,9 +164,9 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
         print(_bar("join integrity (no dangling/orphan)", "PASS" if idx["join_integrity"] else "FAIL"))
         print(_bar("embedding sanity (dims consistent)", "PASS" if idx["embedding_sanity"] else "FAIL"))
         rk = idx["recall_at_k"]
-        print(_bar("round-trip recall@k [offline embedder]", "BASE",
+        print(_bar("round-trip recall@k [OpenAI embedder]", "BASE",
                    "  ".join(f"@{k}={rk[k]:.2f}" for k in ks)
-                   + "  (-> 1.0 in P2-late w/ OpenAI emb + rerank)"))
+                   + "  (-> 1.0 w/ rerank + graph)"))
         for iss in idx["issues"][:4]:
             print(f"        issue: {iss}")
     except Exception as e:                              # pragma: no cover
@@ -199,7 +198,7 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
         print("\nPHASE 3 - RETRIEVAL   (gate: recall floor = 1.0; dual-mode; coverage)")
         print(_bar("retrieval recall FLOOR (union)", "PASS" if p3_pass else "FAIL",
                    f"{floor:.3f}  (all gold docs retrievable for every answerable q)"))
-        print(_bar("ranked recall@k [offline embedder]", "BASE",
+        print(_bar("ranked recall@k [OpenAI embedder]", "BASE",
                    "  ".join(f"@{kk}={rcount[kk]/len(items):.2f}" for kk in kset)
                    + "  (-> top-k via rerank + Phase-5 decomposition)"))
         print(_bar("graph/structured lanes (multi-hop)", "PASS",
@@ -308,9 +307,6 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
         print("\nRAGAS EXTERNAL AUDIT   (NLI faithfulness + context recall; independent second opinion)")
         try:
             from .ragas_eval import ragas_report
-            # enable Haiku synthesis for RAGAS dataset collection when --hosted
-            if hosted:
-                cfg.models.provider_mode = "hosted"
             rr = ragas_report(stores, g, cfg)
             top_err = rr.get("error")
             sc_err  = rr.get("scores", {}).get("error") if isinstance(rr.get("scores"), dict) else None
@@ -338,8 +334,7 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False) -> int:
                 print(_bar("unanswerable -> abstained", "PASS" if abs_ok else "FAIL",
                            f"{rr['abstain_ok']}/{rr['abstain_n']}"))
                 if rr["n_skipped"]:
-                    print(f"        ({rr['n_skipped']} q skipped: partial/offline/unanswerable"
-                          " — add --hosted for full synthesis coverage)")
+                    print(f"        ({rr['n_skipped']} q skipped: partial/unanswerable)")
         except Exception as e:
             print(_bar("RAGAS eval", "FAIL", f"error: {e}"))
             ragas_pass = False

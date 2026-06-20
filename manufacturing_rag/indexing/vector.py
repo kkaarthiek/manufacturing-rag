@@ -1,11 +1,11 @@
 """
 Vector index (spec 7.1, 7.3).
 
-FlatVectorIndex  — brute-force cosine in-memory (offline default; zero deps).
+FlatVectorIndex   — brute-force cosine in-memory (fallback; no extra deps).
 QdrantVectorStore — persistent on-disk Qdrant collection (no server needed).
-                   Activated when models.vector_store = 'qdrant' in config.
-                   Replaces the 43 MB text_index.json with a proper vector DB;
-                   BM25 state stays in-memory (TextIndex handles that).
+                    Activated when models.vector_store = 'qdrant' in config.
+                    Replaces the large text_index.json with a proper vector DB;
+                    BM25 state stays in-memory (TextIndex handles that).
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class QdrantVectorStore:
 
     Uses cosine distance to match the existing flat index behaviour.
     Point IDs are stable uint64 hashes of the unit_id string so upserts are
-    idempotent across rebuilds.  The original string uid is stored in the
+    idempotent across rebuilds. The original string uid is stored in the
     point payload under '_uid' and returned by search().
     """
 
@@ -60,8 +60,6 @@ class QdrantVectorStore:
                 collection,
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
             )
-
-    # ---- write ----
 
     def upsert(self, uid: str, vec: list[float], payload: dict):
         from qdrant_client.models import PointStruct
@@ -86,8 +84,6 @@ class QdrantVectorStore:
             ]
             self.client.upsert(collection_name=self.collection, points=points)
 
-    # ---- read ----
-
     def search(self, query_vec: list[float], k: int) -> list[tuple[str, float]]:
         hits = self.client.search(
             collection_name=self.collection,
@@ -99,14 +95,12 @@ class QdrantVectorStore:
     def count(self) -> int:
         return self.client.count(self.collection).count
 
-    # ---- helpers ----
-
     @staticmethod
     def _uid_to_int(uid: str) -> int:
         """Stable unsigned 64-bit int from a string uid (Qdrant point ID)."""
         return int.from_bytes(
             hashlib.sha256(uid.encode()).digest()[:8], "big"
-        ) >> 1   # shift right 1 to keep within signed int64 range
+        ) >> 1
 
 
 __all__ = ["FlatVectorIndex", "QdrantVectorStore"]

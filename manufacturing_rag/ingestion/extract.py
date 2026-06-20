@@ -1,5 +1,5 @@
 """
-Step 6 — the single extraction pass (spec 6.4).  STATUS: IMPLEMENTED (Claude Haiku).
+Step 6 — the single extraction pass (spec 6.4).  STATUS: IMPLEMENTED.
 
 THE HOT PATH. One temp-0 call per cleaned chunk returns, in ONE structured JSON
 output: context blurb + atomic propositions + (s,p,o) triples + entity mentions
@@ -10,9 +10,6 @@ runs (recall-oriented — every derived unit is independently grounded-verified 
 derive.py, so union can't admit an unsupported claim), and flag whether the runs
 agreed. The system prompt is static and prompt-cached (provider) so re-running
 across 42 chunks reuses the prefix at ~0.1x.
-
-Offline mode: returns an empty Extraction (no network) so the pipeline still
-runs; the multi-granularity index simply has no derived units until hosted.
 """
 
 from __future__ import annotations
@@ -21,7 +18,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ..providers import LLM, RuleStubLLM
+from ..providers import LLM
 
 SYSTEM = (
     "You are a manufacturing-data extraction engine. Read the document chunk and "
@@ -74,8 +71,6 @@ def _one_pass(llm: LLM, chunk: str, retries: int = 1) -> dict | None:
 
 def extract_chunk(llm: LLM, chunk_text: str, n: int = 1) -> Extraction:
     """Single extraction pass with N-run self-consistency (union + agreement flag)."""
-    if isinstance(llm, RuleStubLLM):                       # offline: no derived units
-        return Extraction()
     runs = []
     for _ in range(max(1, n)):
         d = _one_pass(llm, chunk_text)
