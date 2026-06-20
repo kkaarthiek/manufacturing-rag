@@ -128,8 +128,8 @@ def run_deepeval(rows: list[dict], cfg) -> dict:
     judge_model = cfg.models.llm  # gpt-4o
     metrics = _make_metrics(model=judge_model)
 
-    # accumulate scores per metric
-    totals: dict[str, list[float]] = {m.name: [] for m in metrics}
+    # accumulate scores per metric (DeepEval exposes the display name as __name__)
+    totals: dict[str, list[float]] = {m.__name__: [] for m in metrics}
 
     for r in scoreable:
         tc = LLMTestCase(
@@ -142,7 +142,7 @@ def run_deepeval(rows: list[dict], cfg) -> dict:
             try:
                 m.measure(tc, _show_indicator=False)
                 if m.score is not None:
-                    totals[m.name].append(float(m.score))
+                    totals[m.__name__].append(float(m.score))
             except Exception:
                 pass   # skip failed evaluations — don't abort the whole run
 
