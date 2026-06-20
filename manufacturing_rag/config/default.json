@@ -7,6 +7,7 @@
     "reranker": "llm",
     "llm": "gpt-4o",
     "vector_store": "qdrant",
+    "graph_store": "neo4j",
     "temperature": 0.0,
     "self_consistency_n": 3
   },

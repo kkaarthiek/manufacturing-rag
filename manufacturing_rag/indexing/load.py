@@ -33,7 +33,7 @@ from ..ingestion.pipeline import run_pipeline, ENTITY_GRAPH_ID
 from ..ingestion.extract import extract_chunk, Extraction
 from ..ingestion.derive import derive_units
 from .structured import StructuredStore
-from .graph import GraphStore
+from .graph import GraphStore, Neo4jGraphStore
 from .text_index import TextIndex
 
 
@@ -97,6 +97,17 @@ def _relationship_edges(graph, rec):
         link("ON_MACHINE", f.get("machine"))
 
 
+def _make_graph(cfg: Config):
+    """Return a Neo4jGraphStore when graph_store='neo4j', else in-memory GraphStore."""
+    if getattr(cfg.models, "graph_store", "memory") != "neo4j":
+        return GraphStore()
+    return Neo4jGraphStore(
+        uri=cfg.paths.neo4j_uri,
+        user=cfg.paths.neo4j_user,
+        password=cfg.paths.neo4j_password,
+    )
+
+
 def _make_qdrant(cfg: Config, collection: str):
     """Return a QdrantVectorStore when vector_store='qdrant', else None."""
     if getattr(cfg.models, "vector_store", "flat") != "qdrant":
@@ -114,7 +125,7 @@ def build_empty_index(cfg: Config) -> tuple[Stores, dict]:
     ingests the user's real uploads incrementally (spec 6.11)."""
     text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "live_index"))
     text.build()                                        # finalize empty BM25 state
-    stores = Stores(StructuredStore(None), GraphStore(), text, {},
+    stores = Stores(StructuredStore(None), _make_graph(cfg), text, {},
                     alias_map={}, doc_ids=set(), parent_of={})
     return stores, {"doc_ids": [], "record_keys": [], "derived": {}, "flags": []}
 
@@ -131,7 +142,7 @@ def build_index(cfg: Config, persist: bool = False, derive: bool = False,
     art = Path(cfg.paths.artifacts)
 
     structured = StructuredStore(str(art / "structured.db") if persist else None)
-    graph = GraphStore()
+    graph = _make_graph(cfg)
     text = TextIndex(get_embedder(cfg), qdrant_store=_make_qdrant(cfg, "eval_index"))
     originals: dict[str, str] = {}
 

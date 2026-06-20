@@ -1,11 +1,13 @@
 """
-Graph store (spec 7.1).  STATUS: IMPLEMENTED (in-memory adjacency + JSON persist).
+Graph store (spec 7.1).
 
-Nodes (entity, and later chunk/proposition/summary) + edges (triples,
-chunk->entity, parent-child, ...). Idempotent entity merge (aliases/source_links
-unioned). `neighbors()` works today; `personalized_pagerank` is the Phase-3
-multi-hop lever (stub). Edges carry relation `properties` for Phase-4 rule eval.
-Neo4j/Kuzu is the hosted swap target; same interface.
+GraphStore     — in-memory adjacency + JSON persistence (default).
+Neo4jGraphStore — Neo4j-backed persistent graph; same interface, Cypher behind
+                  the methods. Activated when models.graph_store = 'neo4j'.
+
+Connection: NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD env vars (or config).
+Local:  bolt://localhost:7687  (Neo4j Desktop / Docker)
+Cloud:  neo4j+s://<id>.databases.neo4j.io  (AuraDB)
 """
 
 from __future__ import annotations
@@ -72,4 +74,152 @@ class GraphStore:
         raise NotImplementedError("Phase 3: PPR multi-hop over the seeded graph.")
 
 
-__all__ = ["GraphStore"]
+class Neo4jGraphStore:
+    """Neo4j-backed graph store — persistent, no rebuild needed on restart.
+
+    Implements the same interface as GraphStore so all callers (graph_lane,
+    agent.py data_map, verify_index) work without changes.
+
+    Relationship types in Neo4j must be valid identifiers; we sanitize rel
+    names to [A-Z0-9_]+ before writing (safe — rels come from our pipeline,
+    not user input).
+    """
+
+    def __init__(self, uri: str, user: str, password: str):
+        from neo4j import GraphDatabase
+        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._ensure_constraints()
+
+    def _ensure_constraints(self):
+        with self.driver.session() as s:
+            s.run("CREATE CONSTRAINT entity_id IF NOT EXISTS "
+                  "FOR (n:Entity) REQUIRE n.canonical_id IS UNIQUE")
+
+    def close(self):
+        self.driver.close()
+
+    # ---- helpers ----
+
+    @staticmethod
+    def _rel_type(rel: str) -> str:
+        import re
+        return re.sub(r"[^A-Z0-9]", "_", rel.upper()) or "RELATED"
+
+    def _edge_from_record(self, rec) -> Edge:
+        props = dict(rec["props"] or {})
+        return Edge(
+            src=rec["src"], rel=rec["rel"], dst=rec["dst"],
+            properties=props,
+            source_doc_id=props.pop("source_doc_id", ""),
+            trust=float(props.pop("trust", 1.0)),
+        )
+
+    # ---- write ----
+
+    def add_entity(self, e: Entity):
+        with self.driver.session() as s:
+            s.run(
+                "MERGE (n:Entity {canonical_id: $id}) "
+                "SET n.type = $type, n.aliases = $aliases, "
+                "    n.source_links = $sl, n.attrs = $attrs",
+                id=e.canonical_id, type=e.type,
+                aliases=json.dumps(e.aliases),
+                sl=json.dumps(e.source_links),
+                attrs=json.dumps(e.attrs),
+            )
+
+    def add_edge(self, edge: Edge):
+        rtype = self._rel_type(edge.rel)
+        props = {**edge.properties,
+                 "rel": edge.rel,             # store original rel name in props
+                 "source_doc_id": edge.source_doc_id,
+                 "trust": edge.trust}
+        with self.driver.session() as s:
+            s.run(
+                f"MATCH (a:Entity {{canonical_id: $src}}), "
+                f"      (b:Entity {{canonical_id: $dst}}) "
+                f"MERGE (a)-[r:{rtype} {{src: $src, dst: $dst}}]->(b) "
+                f"SET r += $props",
+                src=edge.src, dst=edge.dst, props=props,
+            )
+
+    # ---- read ----
+
+    def has_node(self, node_id: str) -> bool:
+        with self.driver.session() as s:
+            result = s.run(
+                "MATCH (n:Entity {canonical_id: $id}) RETURN count(n) > 0 AS found",
+                id=node_id,
+            )
+            rec = result.single()
+            return bool(rec and rec["found"])
+
+    def neighbors(self, node_id: str) -> list[Edge]:
+        with self.driver.session() as s:
+            result = s.run(
+                "MATCH (n:Entity {canonical_id: $id})-[r]-(m:Entity) "
+                "RETURN properties(r) AS props, "
+                "       n.canonical_id AS src_id, m.canonical_id AS dst_id, "
+                "       type(r) AS rtype",
+                id=node_id,
+            )
+            edges = []
+            for rec in result:
+                props = dict(rec["props"] or {})
+                rel = props.get("rel") or rec["rtype"]
+                src = props.get("src") or rec["src_id"]
+                dst = props.get("dst") or rec["dst_id"]
+                edges.append(Edge(
+                    src=src, rel=rel, dst=dst,
+                    properties={k: v for k, v in props.items()
+                                 if k not in ("rel", "src", "dst", "source_doc_id", "trust")},
+                    source_doc_id=props.get("source_doc_id", ""),
+                    trust=float(props.get("trust", 1.0)),
+                ))
+            return edges
+
+    @property
+    def edges(self) -> list[Edge]:
+        """All edges — used by agent.py data_map() to enumerate relation types."""
+        with self.driver.session() as s:
+            result = s.run(
+                "MATCH (a:Entity)-[r]->(b:Entity) "
+                "RETURN properties(r) AS props, type(r) AS rtype LIMIT 5000"
+            )
+            out = []
+            for rec in result:
+                props = dict(rec["props"] or {})
+                out.append(Edge(
+                    src=props.get("src", ""),
+                    rel=props.get("rel") or rec["rtype"],
+                    dst=props.get("dst", ""),
+                    properties={}, source_doc_id="", trust=1.0,
+                ))
+            return out
+
+    def node_count(self) -> int:
+        with self.driver.session() as s:
+            return s.run("MATCH (n:Entity) RETURN count(n) AS c").single()["c"]
+
+    def edge_count(self) -> int:
+        with self.driver.session() as s:
+            return s.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
+
+    def dangling_edges(self) -> list[Edge]:
+        """Neo4j enforces referential integrity — relationships always have
+        both endpoints. Always returns []."""
+        return []
+
+    # ---- persistence (no-ops — Neo4j persists automatically) ----
+
+    def save(self, path=None):
+        pass   # data is already in Neo4j; nothing to write to disk
+
+    def load(self, path=None):
+        return self  # reconnects via __init__; data already in Neo4j
+
+    def personalized_pagerank(self, seeds: list[str], k: int = 10):
+        raise NotImplementedError("Use Neo4j GDS plugin for PPR multi-hop.")
+
+
+__all__ = ["GraphStore", "Neo4jGraphStore"]

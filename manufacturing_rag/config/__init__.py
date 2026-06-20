@@ -71,6 +71,9 @@ class Paths:
     question_gold: str = str(REPO_ROOT / "questions.jsonl")
     artifacts: str = str(PACKAGE_ROOT / "_artifacts")  # built stores live here
     qdrant_path: str = str(PACKAGE_ROOT / "_artifacts" / "qdrant")  # Qdrant on-disk storage
+    neo4j_uri: str = "bolt://localhost:7687"   # override with NEO4J_URI env var
+    neo4j_user: str = "neo4j"                  # override with NEO4J_USER env var
+    neo4j_password: str = "password"           # override with NEO4J_PASSWORD env var
 
 
 @dataclass
@@ -81,6 +84,7 @@ class Models:
     reranker: str = "llm"
     llm: str = "gpt-4o"
     vector_store: str = "qdrant"              # flat (in-memory) | qdrant (persistent DB)
+    graph_store: str = "memory"               # memory (in-memory+JSON) | neo4j (persistent DB)
     temperature: float = 0.0                  # spec: every LLM step at temp 0
     self_consistency_n: int = 3               # N runs, require agreement
 
@@ -119,6 +123,12 @@ def load_config(path: str | Path | None = None) -> Config:
             for k, v in (data.get(section) or {}).items():
                 if hasattr(getattr(cfg, section), k):
                     setattr(getattr(cfg, section), k, v)
+    # env vars override config for Neo4j credentials
+    for env, attr in (("NEO4J_URI", "neo4j_uri"), ("NEO4J_USER", "neo4j_user"),
+                      ("NEO4J_PASSWORD", "neo4j_password")):
+        val = os.environ.get(env)
+        if val:
+            setattr(cfg.paths, attr, val)
     return cfg
 
 
