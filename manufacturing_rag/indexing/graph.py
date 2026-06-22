@@ -54,6 +54,14 @@ class GraphStore:
         ids = set(self.nodes)
         return [e for e in self.edges if e.src not in ids or e.dst not in ids]
 
+    def dump(self, limit: int = 400) -> dict:
+        """Nodes + edges for visualization."""
+        nodes = [{"id": n.canonical_id, "type": n.type}
+                 for n in list(self.nodes.values())[:limit]]
+        edges = [{"src": e.src, "rel": e.rel, "dst": e.dst}
+                 for e in self.edges[:limit]]
+        return {"nodes": nodes, "edges": edges}
+
     # ---- persistence (idempotent) ----
     def save(self, path: str | Path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +218,19 @@ class Neo4jGraphStore:
         """Neo4j enforces referential integrity — relationships always have
         both endpoints. Always returns []."""
         return []
+
+    def dump(self, limit: int = 400) -> dict:
+        """Nodes + edges for visualization (via Cypher)."""
+        with self.driver.session() as s:
+            nodes = [{"id": r["id"], "type": r["type"]} for r in s.run(
+                "MATCH (n:Entity) RETURN n.canonical_id AS id, n.type AS type LIMIT $lim",
+                lim=limit)]
+            edges = [{"src": r["src"], "rel": (r["p"] or {}).get("rel") or r["rt"],
+                      "dst": r["dst"]} for r in s.run(
+                "MATCH (a:Entity)-[r]->(b:Entity) RETURN a.canonical_id AS src, "
+                "type(r) AS rt, b.canonical_id AS dst, properties(r) AS p LIMIT $lim",
+                lim=limit)]
+        return {"nodes": nodes, "edges": edges}
 
     # ---- persistence (no-ops — Neo4j persists automatically) ----
 

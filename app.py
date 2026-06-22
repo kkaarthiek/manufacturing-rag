@@ -399,6 +399,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"status": _INGEST_STATUS})
         if path == "/api/models-status":
             return self._send(200, models_status())
+        if path == "/api/graph":
+            try:
+                rag = get_rag()
+                with _RAG_LOCK:
+                    return self._send(200, rag.stores.graph.dump())
+            except Exception as e:
+                return self._send(200, {"nodes": [], "edges": [], "error": str(e)[:120]})
         if path == "/api/raw-doc":
             qs = parse_qs(urlparse(self.path).query)
             doc_id = (qs.get("id") or [""])[0]

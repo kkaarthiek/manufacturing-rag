@@ -13,6 +13,7 @@
       <button class="nav-btn active" data-view="chat">💬 Chat</button>
       <button class="nav-btn" data-view="ingest">📥 Ingestion</button>
       <button class="nav-btn" data-view="data">🗂 Ingested Data</button>
+      <button class="nav-btn" data-view="graph">🕸 Graph</button>
     </nav>
     <div class="rail-foot">
       <div id="modelBox" class="model-box">
@@ -112,6 +113,21 @@
       </div>
     </section>
   </main>
+
+    <!-- ===================== KNOWLEDGE GRAPH ===================== -->
+    <section id="view-graph" class="view">
+      <header class="topbar">
+        <h1>Knowledge Graph</h1>
+        <span class="badge" id="graphBadge">—</span>
+        <div class="actions">
+          <span class="muted tiny" style="margin-right:10px">● docs &nbsp; ● entities</span>
+          <button id="graphRefresh" class="btn ghost">↻ Refresh</button>
+        </div>
+      </header>
+      <div id="graphWrap" class="graph-wrap">
+        <svg id="graphSvg"></svg>
+      </div>
+    </section>
 
   <!-- ===================== EDITOR DRAWER ===================== -->
   <div id="drawer" class="drawer">

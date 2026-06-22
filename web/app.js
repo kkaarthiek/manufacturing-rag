@@ -26,6 +26,7 @@ const api = {
     body: JSON.stringify({ question, field, doc_id, mode: mode || "hosted" }),
   }).then((r) => r.json()),
   rawDoc: (doc_id) => fetch("/api/raw-doc?id=" + encodeURIComponent(doc_id)).then((r) => r.json()),
+  graph: () => fetch("/api/graph").then((r) => r.json()),
   modelsStatus: () => fetch("/api/models-status").then((r) => r.json()),
   activateModels: () => fetch("/api/activate-models", { method: "POST" }).then((r) => r.json()),
   upload: (file) => fetch("/api/upload", {
@@ -48,7 +49,69 @@ function showView(name) {
   $$(".view").forEach((v) => v.classList.remove("active"));
   $("#view-" + name).classList.add("active");
   if (name === "ingest") refreshIngestStatus();   // show live/past ingestion status
+  if (name === "graph") renderGraph();
 }
+
+// --------------------------------------------------------------------------
+// Knowledge graph (force-directed SVG, zero deps)
+// --------------------------------------------------------------------------
+async function renderGraph() {
+  const svg = $("#graphSvg"), wrap = $("#graphWrap");
+  if (!svg) return;
+  svg.innerHTML = `<text x="20" y="40" fill="#8b97a6" font-size="13">loading graph…</text>`;
+  let data;
+  try { data = await api.graph(); } catch { svg.innerHTML = ""; return; }
+  const nodes = data.nodes || [], edges = data.edges || [];
+  $("#graphBadge").textContent = `${nodes.length} nodes · ${edges.length} edges`;
+  if (!nodes.length) {
+    svg.innerHTML = `<text x="20" y="40" fill="#8b97a6" font-size="13">`
+      + `No graph yet — upload a document, then it'll appear here.</text>`;
+    return;
+  }
+  const W = wrap.clientWidth || 900, H = Math.max(wrap.clientHeight, 520);
+  const idx = {};
+  nodes.forEach((n, i) => {
+    const a = (i / nodes.length) * Math.PI * 2;
+    n.x = W / 2 + Math.cos(a) * 180; n.y = H / 2 + Math.sin(a) * 180; n.vx = 0; n.vy = 0;
+    idx[n.id] = n;
+  });
+  const links = edges.filter((e) => idx[e.src] && idx[e.dst]);
+  for (let it = 0; it < 300; it++) {
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j]; let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy || 1, dist = Math.sqrt(d2), f = 2200 / d2;
+      dx /= dist; dy /= dist; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    for (const e of links) {
+      const a = idx[e.src], b = idx[e.dst]; let dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1, f = (dist - 90) * 0.01;
+      dx /= dist; dy /= dist; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    for (const n of nodes) {
+      n.vx += (W / 2 - n.x) * 0.002; n.vy += (H / 2 - n.y) * 0.002;
+      n.x += Math.max(-20, Math.min(20, n.vx)); n.y += Math.max(-20, Math.min(20, n.vy));
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x = Math.max(24, Math.min(W - 24, n.x)); n.y = Math.max(24, Math.min(H - 24, n.y));
+    }
+  }
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  let h = "";
+  for (const e of links) {
+    const a = idx[e.src], b = idx[e.dst];
+    h += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#2a323c"/>`;
+  }
+  for (const n of nodes) {
+    const doc = n.type === "doc", r = doc ? 11 : 6, c = doc ? "#4f8cff" : "#c98a6a";
+    h += `<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${r}" fill="${c}">`
+       + `<title>${escapeHtml(n.id)} (${escapeHtml(n.type || "")})</title></circle>`;
+    h += `<text x="${(n.x + r + 2).toFixed(1)}" y="${(n.y + 3).toFixed(1)}" font-size="9" `
+       + `fill="${doc ? "#9ec1ff" : "#b8a"}">${escapeHtml(n.id)}</text>`;
+  }
+  svg.innerHTML = h;
+}
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "graphRefresh") renderGraph();
+});
 $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
 function escapeHtml(s) {
