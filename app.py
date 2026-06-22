@@ -233,7 +233,13 @@ def activate_models():
     except Exception as e:
         return {"active": False, "error": str(e)[:200],
                 "detail": f"Activation failed: {str(e)[:160]}"}
-    return models_status()
+    # the warm calls succeeding IS the proof of activation — return success
+    # directly rather than re-querying /api/ps (which can race the just-warmed
+    # embedder and momentarily report it unloaded).
+    return {"provider": "ollama", "ollama_up": True, "active": True,
+            "models": [{"name": m, "pulled": True, "loaded": True}
+                       for m in (llm_m, emb_m) if m],
+            "detail": "Local models active."}
 
 
 def _citation_view(rag, doc_ids):
