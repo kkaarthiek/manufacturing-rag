@@ -47,6 +47,7 @@ function showView(name) {
   $$(".nav-btn").forEach((x) => x.classList.toggle("active", x.dataset.view === name));
   $$(".view").forEach((v) => v.classList.remove("active"));
   $("#view-" + name).classList.add("active");
+  if (name === "ingest") refreshIngestStatus();   // show live/past ingestion status
 }
 $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
@@ -372,25 +373,48 @@ async function uploadFiles(files) {
   }
   await loadAll();
   if (added.length) pushFeed(added);
-  toast(`Uploaded ${added.length} file(s) — ingesting into the chat pipeline…`);
-  added.forEach((d) => pollIngest(d._file || (d.metadata || {}).source_file));
+  toast(`Uploading ${files.length} file(s) — ingesting into the chat pipeline…`);
+  refreshIngestStatus();   // show the live per-file status panel + start polling
 }
 
-// poll background ingestion -> show real chunk/table/caption counts when done
-async function pollIngest(filename) {
-  if (!filename) return;
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    let st;
-    try { st = (await fetch("/api/ingest-status").then((r) => r.json())).status[filename]; }
-    catch (e) { continue; }
-    if (!st) continue;
-    if (st.state === "done") {
-      await loadAll();
-      toast(`✓ ${filename}: ${st.chunks} chunks · ${st.tables} tables · ${st.image_captions || 0} captions — ready to chat`);
-      return;
+// Live ingestion status panel: one row per file (processing / done / error),
+// polled while anything is still processing.
+let _ingestPoll = null;
+async function refreshIngestStatus() {
+  const panel = $("#ingestStatus");
+  if (!panel) return;
+  let data;
+  try { data = await fetch("/api/ingest-status").then((r) => r.json()); }
+  catch (e) { return; }
+  const st = data.status || {};
+  const names = Object.keys(st);
+  if (!names.length) { panel.innerHTML = ""; return; }
+  let anyProcessing = false;
+  const rows = names.reverse().map((n) => {
+    const s = st[n] || {};
+    let badge, detail;
+    if (s.state === "processing") {
+      badge = `<span class="is-badge proc">⏳ processing</span>`;
+      detail = s.detail || "extracting + embedding…";
+      anyProcessing = true;
+    } else if (s.state === "done") {
+      badge = `<span class="is-badge done">✓ done</span>`;
+      detail = `${s.chunks || 0} chunks · ${s.tables || 0} tables · ${s.image_captions || 0} captions`;
+    } else if (s.state === "error") {
+      badge = `<span class="is-badge err">✕ error</span>`;
+      detail = s.detail || "";
+    } else {
+      badge = `<span class="is-badge">${escapeHtml(s.state || "")}</span>`; detail = "";
     }
-    if (st.state === "error") { toast(`✕ ${filename}: ${st.detail}`, true); return; }
+    return `<div class="is-row"><div class="is-name" title="${escapeHtml(n)}">${escapeHtml(n)}</div>`
+         + `${badge}<div class="is-detail">${escapeHtml(detail)}</div></div>`;
+  }).join("");
+  panel.innerHTML = `<div class="is-head">Ingestion status</div>` + rows;
+  if (anyProcessing && !_ingestPoll) {
+    _ingestPoll = setInterval(refreshIngestStatus, 2500);
+  } else if (!anyProcessing && _ingestPoll) {
+    clearInterval(_ingestPoll); _ingestPoll = null;
+    loadAll();   // all done -> refresh the live-docs count
   }
 }
 $("#fileInput").addEventListener("change", (e) => uploadFiles(e.target.files));
