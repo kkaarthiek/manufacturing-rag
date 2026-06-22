@@ -263,6 +263,84 @@ class OpenAILLM(LLM):
         return data["choices"][0]["message"]["content"]
 
 
+class OllamaLLM(LLM):
+    """Local inference via Ollama (http://localhost:11434, stdlib urllib).
+
+    Free, offline-capable, no API key — the fallback when cloud quota is gone.
+    Uses /api/chat (stream off). temperature forced via options. vision() uses
+    Ollama's `images` field (base64) for multimodal models.
+    """
+    def __init__(self, model: str = "qwen3.5", host: str | None = None,
+                 num_predict: int = 4096, timeout: int = 300):
+        self.model = model
+        self.num_predict = num_predict
+        self.timeout = timeout
+        self.host = (host or os.environ.get("OLLAMA_HOST")
+                     or "http://localhost:11434").rstrip("/")
+
+    def complete(self, prompt: str, system: str = "", temperature: float = 0.0,
+                 cache_system: bool = True) -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        body = {"model": self.model, "messages": messages, "stream": False,
+                "options": {"temperature": temperature, "num_predict": self.num_predict}}
+        data = self._post("/api/chat", body)
+        return (data.get("message") or {}).get("content", "")
+
+    def vision(self, prompt: str, image_png: bytes, system: str = "",
+               media_type: str = "image/png") -> str:
+        import base64
+        b64 = base64.standard_b64encode(image_png).decode("ascii")
+        msg = {"role": "user", "content": prompt or "Transcribe or describe this image.",
+               "images": [b64]}
+        messages = ([{"role": "system", "content": system}] if system else []) + [msg]
+        body = {"model": self.model, "messages": messages, "stream": False,
+                "options": {"temperature": 0.0}}
+        data = self._post("/api/chat", body)
+        return (data.get("message") or {}).get("content", "")
+
+    def _post(self, route: str, body: dict) -> dict:
+        req = urllib.request.Request(
+            self.host + route, data=json.dumps(body).encode("utf-8"), method="POST",
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.load(r)
+
+
+class OllamaEmbedder(Embedder):
+    """Local embeddings via Ollama (e.g. nomic-embed-text, 768-d). Batches through
+    /api/embed (newer) with a per-text /api/embeddings fallback (older Ollama)."""
+    def __init__(self, model: str = "nomic-embed-text", dim: int = 768,
+                 host: str | None = None, timeout: int = 120):
+        self.model, self.dim, self.timeout = model, dim, timeout
+        self.host = (host or os.environ.get("OLLAMA_HOST")
+                     or "http://localhost:11434").rstrip("/")
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return self._embed_batch(texts)
+        except urllib.error.HTTPError:
+            return [self._embed_one(t) for t in texts]   # older Ollama fallback
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        body = {"model": self.model, "input": texts}
+        req = urllib.request.Request(
+            self.host + "/api/embed", data=json.dumps(body).encode("utf-8"),
+            method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.load(r)["embeddings"]
+
+    def _embed_one(self, text: str) -> list[float]:
+        body = {"model": self.model, "prompt": text}
+        req = urllib.request.Request(
+            self.host + "/api/embeddings", data=json.dumps(body).encode("utf-8"),
+            method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.load(r)["embedding"]
+
+
 # --------------------------------------------------------------------------- #
 # Factory (config-driven)
 # --------------------------------------------------------------------------- #
@@ -271,12 +349,15 @@ class ProviderError(NotImplementedError):
 
 
 def get_embedder(cfg: Config) -> Embedder:
-    """Always uses OpenAI embeddings ('openai:<model>' in config)."""
+    """'openai:<model>' => OpenAI; 'ollama:<model>' => local Ollama."""
     name = cfg.models.embeddings
     if name.startswith("openai:"):
         return OpenAIEmbedder(model=name.split(":", 1)[1], dim=cfg.models.embedding_dim)
+    if name.startswith("ollama:"):
+        return OllamaEmbedder(model=name.split(":", 1)[1], dim=cfg.models.embedding_dim)
     raise ProviderError(
-        f"Embedder '{name}' not wired. Use 'openai:text-embedding-3-large'.")
+        f"Embedder '{name}' not wired. Use 'openai:text-embedding-3-large' "
+        f"or 'ollama:nomic-embed-text'.")
 
 
 def get_reranker(cfg: Config) -> Reranker:
@@ -289,8 +370,8 @@ def get_reranker(cfg: Config) -> Reranker:
 
 
 def get_llm(cfg: Config) -> LLM:
-    """'claude-*' / 'anthropic:<m>' => AnthropicLLM;
-       'gpt-*'    / 'openai:<m>'    => OpenAILLM."""
+    """'claude-*'/'anthropic:<m>' => AnthropicLLM; 'gpt-*'/'openai:<m>' => OpenAILLM;
+       'ollama:<m>' => local OllamaLLM."""
     name = cfg.models.llm
     if name.startswith("anthropic:") or name.startswith("claude"):
         model = name.split(":", 1)[1] if name.startswith("anthropic:") else name
@@ -298,12 +379,14 @@ def get_llm(cfg: Config) -> LLM:
     if name.startswith("openai:") or name.startswith("gpt"):
         model = name.split(":", 1)[1] if name.startswith("openai:") else name
         return OpenAILLM(model=model)
+    if name.startswith("ollama:"):
+        return OllamaLLM(model=name.split(":", 1)[1])
     raise ProviderError(
-        f"LLM '{name}' not wired. Use 'gpt-4o' or 'claude-haiku-4-5'.")
+        f"LLM '{name}' not wired. Use 'gpt-4o', 'claude-haiku-4-5', or 'ollama:<model>'.")
 
 
 __all__ = [
-    "Embedder", "OpenAIEmbedder", "Reranker", "LexicalReranker",
-    "LLMReranker", "LLM", "AnthropicLLM", "OpenAILLM", "ProviderError",
+    "Embedder", "OpenAIEmbedder", "OllamaEmbedder", "Reranker", "LexicalReranker",
+    "LLMReranker", "LLM", "AnthropicLLM", "OpenAILLM", "OllamaLLM", "ProviderError",
     "get_embedder", "get_reranker", "get_llm", "tokenize",
 ]
