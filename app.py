@@ -450,6 +450,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/activate-models":
             return self._send(200, activate_models())
 
+        if path == "/api/backfill-graph":
+            try:
+                rag = get_rag()
+                with _RAG_LOCK:
+                    res = rag.backfill_structured_edges()
+                return self._send(200, res)
+            except Exception as e:
+                return self._send(500, {"error": str(e)})
+
         if path == "/api/remove-doc":
             data = self._json_body() or {}
             doc_id = data.get("doc_id", "")

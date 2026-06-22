@@ -69,6 +69,10 @@ class StructuredStore:
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
 
+    def tables(self) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT tbl FROM records").fetchall()]
+
     def query(self, table: str, **predicate):
         """Exact predicate filter over a table's fields (full-store scan)."""
         out = []

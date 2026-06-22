@@ -14,8 +14,16 @@ Every shipped answer is grounded-or-abstained.
 
 from __future__ import annotations
 
+import re
+
 from ..config import load_config
 from ..providers import get_llm
+
+# entity-ID-like tokens in table cells (PRT-2003, MC-204, SP-3301, SUP-101…)
+_ENTITY_ID = re.compile(r"\b[A-Z]{2,4}-?\d{2,5}\b")
+# column names that typically name the row's subject entity
+_SUBJ_HINT = ("id", "no", "code", "part", "asset", "machine", "equipment",
+              "item", "sku", "tag", "unit")
 from ..indexing.load import build_index
 from ..retrieval.router import Retriever
 from ..retrieval.agent import AgenticRetriever
@@ -223,6 +231,8 @@ class System:
                 self.stores.structured.put(StructuredRecord(
                     table=f"{did}_table{ti}", key=f"{did}::t{ti}r{ri}",
                     fields=fields, source_doc_id=did))
+                # deterministic entity<->entity edges from the row (real KG)
+                self._wire_structured_edges(did, fields)
         self.stores.structured.commit()
 
         # refresh retriever doc-text cache so reranking sees the new doc
@@ -236,6 +246,50 @@ class System:
                 "tables": len(rd.tables), "image_captions": len(rd.image_captions),
                 "ocr_used": rd.ocr_used, "flags": rd.flags,
                 "derived_units": derived, "indexed": True}
+
+    def _ensure_entity_node(self, did: str, eid: str):
+        """Make sure an entity ID is a graph node and the doc MENTIONS it."""
+        if not self.stores.graph.has_node(eid):
+            self.stores.graph.add_entity(Entity(canonical_id=eid, type="entity",
+                                                source_links=[did]))
+        self.stores.graph.add_edge(Edge(src=did, rel="MENTIONS", dst=eid,
+                                        source_doc_id=did, trust=1.0))
+
+    def _wire_structured_edges(self, did: str, fields: dict) -> int:
+        """Deterministic entity<->entity edges from a table row: the row's
+        subject entity (an id/code/asset column) is linked to every other
+        entity-ID value, with the COLUMN NAME as the typed relation.
+        e.g. row {Equipment ID: MC-204, Component: SP-3301} -> MC-204 -COMPONENT-> SP-3301."""
+        found = []                                   # (column, entity_id)
+        for col, val in fields.items():
+            if isinstance(val, str):
+                for eid in _ENTITY_ID.findall(val):
+                    found.append((str(col).lower(), eid))
+        if not found:
+            return 0
+        # subject = value in an identity-like column, else the first id seen
+        subj = next((p for p in found if any(h in p[0] for h in _SUBJ_HINT)), found[0])
+        subj_id = subj[1]
+        self._ensure_entity_node(did, subj_id)
+        n = 0
+        for col, eid in found:
+            if eid == subj_id:
+                continue
+            self._ensure_entity_node(did, eid)
+            rel = re.sub(r"[^A-Z0-9]+", "_", col.upper()).strip("_") or "RELATED"
+            self.stores.graph.add_edge(Edge(src=subj_id, rel=rel, dst=eid,
+                                            source_doc_id=did, trust=1.0))
+            n += 1
+        return n
+
+    def backfill_structured_edges(self) -> dict:
+        """One-off: wire entity<->entity edges for every already-ingested table
+        record (so existing docs get a real KG without re-ingestion)."""
+        total = 0
+        for tbl in self.stores.structured.tables():
+            for rec in self.stores.structured.query(tbl):
+                total += self._wire_structured_edges(rec.source_doc_id or tbl, rec.fields)
+        return {"edges_added": total}
 
     def remove_document(self, doc_id: str) -> dict:
         """Remove a document from the live stores (text units + Qdrant vectors +
