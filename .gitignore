@@ -8,6 +8,7 @@ manufacturing_rag/_artifacts/
 ingested.jsonl
 corpus.backup.jsonl
 raw/inbox/
+raw/archive/
 
 # python
 __pycache__/
