@@ -121,7 +121,9 @@ class System:
         After this returns, the chat can answer over the new document."""
         # RICH extraction: digital text + structured tables + image captions /
         # scanned-page OCR — robust to real-industry PDFs (spec 6.2/6.4)
-        rd = rich_extract(filename, raw, vision_llm=self.llm, hosted=True)
+        rd = rich_extract(filename, raw, vision_llm=self.llm, hosted=True,
+                          max_images=self.cfg.thresholds.vision_max_images,
+                          max_ocr_pages=self.cfg.thresholds.vision_max_ocr_pages)
         from ..ingestion.incremental import _slug
         did = _slug(filename)
         cdoc = CanonicalDoc(
@@ -178,7 +180,7 @@ class System:
 
         derived = 0
         # extraction pass over a CAPPED set of chunks (cost/context control)
-        for ch in chunks[:6]:                           # cap: first ~6 chunks
+        for ch in chunks[:self.cfg.thresholds.ingest_extract_chunks]:
             try:
                 ex = extract_chunk(self.llm, ch, n=1)
                 _ctx, units, edges = derive_units(did, ch, ex)
@@ -255,14 +257,15 @@ class System:
 
         # else: retrieve evidence (Phase 3) + grounded synthesis (Phase 4 / 9.2)
         retr = self.agent if mode == "agentic" else self.retriever
-        evidence, cov, trace = retr.retrieve(query, k=6)
+        evidence, cov, trace = retr.retrieve(query, k=self.cfg.thresholds.retrieve_k)
         if not cov.sufficient:
             return Answer(text="Not enough grounded evidence to answer.", claims=[],
                           status="abstained", missing=["coverage"],
                           trace={"coverage": cov.score, "retrieval": trace})
         d = decide(query, self.stores)
         exact = {}
-        a = synthesize(query, evidence, self.llm, exact_values=exact)
+        a = synthesize(query, evidence, self.llm, exact_values=exact,
+                       top_n=self.cfg.thresholds.synthesis_top_n)
         a.trace = {**(a.trace or {}), "retrieval_mode": mode,
                    "coverage": cov.score, "entities": d.entities}
         return a
@@ -289,10 +292,11 @@ class System:
         scores = self.retriever.reranker.rerank(query, [t for _, t in cand])
         reranked = [c for c, _ in sorted(zip(cand, scores), key=lambda x: x[1], reverse=True)]
         ordered, seen = [], set()
-        for u, txt in cand[:6] + reranked:              # guarantee top-6 hybrid first
+        floor = self.cfg.thresholds.fresh_hybrid_floor
+        for u, txt in cand[:floor] + reranked:          # guarantee top hybrid hits first
             if u not in seen:
                 seen.add(u); ordered.append((u, txt))
-        ordered = ordered[:14]
+        ordered = ordered[:self.cfg.thresholds.fresh_context_max]
         evidence = [Evidence(id=u, kind="chunk", content=txt,
                              source={"doc_id": self.stores.parent_of.get(u, u)},
                              scores={}) for u, txt in ordered]
@@ -304,7 +308,8 @@ class System:
             return Answer(text="I couldn't find that in your documents.", claims=[],
                           status="abstained", missing=["not in ingested documents"],
                           trace={"coverage": cov.score})
-        a = synthesize(query, evidence, self.llm, top_n=14)
+        a = synthesize(query, evidence, self.llm,
+                       top_n=self.cfg.thresholds.fresh_context_max)
         a.trace = {**(a.trace or {}), "retrieval_mode": mode, "coverage": cov.score,
                    "chunks_considered": len(evidence)}
         return a

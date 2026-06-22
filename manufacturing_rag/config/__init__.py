@@ -98,6 +98,19 @@ class Thresholds:
     ingestion_recall_target: float = 1.0      # Phase 1 gate
     index_coverage_target: float = 1.0        # Phase 2 gate
     retrieval_recall_target: float = 1.0      # driven toward 1.0 on gold
+    # ---- Type-B coverage widths (recall-side only) ----
+    # Compute is unconstrained, so default these wide. Widening them ONLY changes
+    # how much evidence reaches the answer; it does NOT touch any verification gate
+    # (entailment, verify_claims re-run, structured slot-fill, absence) — so
+    # faithfulness / zero-hallucination is preserved by construction.
+    retrieve_k: int = 12                       # synthesis retrieval candidates (was 6)
+    synthesis_top_n: int = 12                  # chunks shown to the synthesiser (was 6)
+    fresh_context_max: int = 24               # fresh-portal synthesis context cap (was 14)
+    fresh_hybrid_floor: int = 10              # guaranteed top hybrid hits, fresh path (was 6)
+    ingest_extract_chunks: int = 12           # per-doc derived-unit extraction cap (was 6)
+    agentic_max_actions: int = 10             # agentic planner action bound (was 6)
+    vision_max_images: int = 16               # vision caption cap (was 8)
+    vision_max_ocr_pages: int = 16            # vision OCR page cap (was 8)
 
 
 @dataclass

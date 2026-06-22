@@ -67,8 +67,10 @@ def _grounded_values(text: str, evidence_blob: str) -> tuple[bool, list[str]]:
 
 
 def synthesize(query: str, evidence: list, llm: LLM, exact_values: dict | None = None,
-               top_n: int = 6) -> Answer:
-    """evidence: list of Evidence (Phase 3). Returns a grounded Answer or partial."""
+               top_n: int = 12) -> Answer:
+    """evidence: list of Evidence (Phase 3). Returns a grounded Answer or partial.
+    top_n widened 6 -> 12 (recall-side only; the entailment gate below grounds
+    every value against exactly the evidence shown, so faithfulness is preserved)."""
     if not evidence:
         return Answer(text="No evidence retrieved; cannot synthesize an answer.",
                       claims=[], status="abstained", missing=["no evidence"],

@@ -37,11 +37,12 @@ PLANNER_SYSTEM = (
 
 
 class AgenticRetriever:
-    def __init__(self, cfg, stores, max_actions: int = 6):
+    def __init__(self, cfg, stores, max_actions: int | None = None):
         self.cfg = cfg
         self.stores = stores
         self.base = Retriever(cfg, stores)
-        self.max_actions = max_actions
+        self.max_actions = (max_actions if max_actions is not None
+                            else getattr(cfg.thresholds, "agentic_max_actions", 6))
         self.llm = get_llm(cfg)
 
     def data_map(self) -> dict:
