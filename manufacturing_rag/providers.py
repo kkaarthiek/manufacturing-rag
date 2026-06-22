@@ -370,24 +370,32 @@ def get_reranker(cfg: Config) -> Reranker:
         return LexicalReranker()
 
 
-def get_llm(cfg: Config) -> LLM:
-    """'claude-*'/'anthropic:<m>' => AnthropicLLM; 'gpt-*'/'openai:<m>' => OpenAILLM;
-       'ollama:<m>' => local OllamaLLM."""
-    name = cfg.models.llm
+def _llm_for(name: str) -> LLM:
+    """Build an LLM from a model name: 'claude-*'/'anthropic:<m>' => AnthropicLLM;
+    'gpt-*'/'openai:<m>' => OpenAILLM; 'ollama:<m>' => local OllamaLLM."""
     if name.startswith("anthropic:") or name.startswith("claude"):
-        model = name.split(":", 1)[1] if name.startswith("anthropic:") else name
-        return AnthropicLLM(model=model)
+        return AnthropicLLM(model=name.split(":", 1)[1] if name.startswith("anthropic:") else name)
     if name.startswith("openai:") or name.startswith("gpt"):
-        model = name.split(":", 1)[1] if name.startswith("openai:") else name
-        return OpenAILLM(model=model)
+        return OpenAILLM(model=name.split(":", 1)[1] if name.startswith("openai:") else name)
     if name.startswith("ollama:"):
         return OllamaLLM(model=name.split(":", 1)[1])
     raise ProviderError(
         f"LLM '{name}' not wired. Use 'gpt-4o', 'claude-haiku-4-5', or 'ollama:<model>'.")
 
 
+def get_llm(cfg: Config) -> LLM:
+    """Main LLM for synthesis / extraction / rerank (local by config)."""
+    return _llm_for(cfg.models.llm)
+
+
+def get_kg_llm(cfg: Config) -> LLM:
+    """Dedicated LLM for KG relation extraction (Haiku) — separate from the
+    main local model. Used minimally (one capped call per document)."""
+    return _llm_for(getattr(cfg.models, "kg_llm", None) or cfg.models.llm)
+
+
 __all__ = [
     "Embedder", "OpenAIEmbedder", "OllamaEmbedder", "Reranker", "LexicalReranker",
     "LLMReranker", "LLM", "AnthropicLLM", "OpenAILLM", "OllamaLLM", "ProviderError",
-    "get_embedder", "get_reranker", "get_llm", "tokenize",
+    "get_embedder", "get_reranker", "get_llm", "get_kg_llm", "tokenize",
 ]

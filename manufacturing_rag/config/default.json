@@ -6,6 +6,7 @@
     "embedding_dim": 768,
     "reranker": "llm",
     "llm": "ollama:qwen2.5:7b",
+    "kg_llm": "claude-haiku-4-5",
     "vector_store": "qdrant",
     "graph_store": "neo4j",
     "temperature": 0.0,

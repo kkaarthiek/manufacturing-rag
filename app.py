@@ -459,6 +459,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(500, {"error": str(e)})
 
+        if path == "/api/extract-relations":
+            try:
+                rag = get_rag()
+                with _RAG_LOCK:
+                    res = rag.enrich_graph_with_relations()   # Haiku, 1 call/doc
+                return self._send(200, res)
+            except Exception as e:
+                return self._send(500, {"error": str(e)})
+
         if path == "/api/remove-doc":
             data = self._json_body() or {}
             doc_id = data.get("doc_id", "")

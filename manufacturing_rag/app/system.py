@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 
 from ..config import load_config
-from ..providers import get_llm
+from ..providers import get_llm, get_kg_llm
 
 # entity-ID-like tokens in table cells (PRT-2003, MC-204, SP-3301, SUP-101…)
 _ENTITY_ID = re.compile(r"\b[A-Z]{2,4}-?\d{2,5}\b")
@@ -51,6 +51,12 @@ class System:
         self.retriever = Retriever(self.cfg, self.stores)
         self.agent = AgenticRetriever(self.cfg, self.stores)
         self.llm = get_llm(self.cfg)
+        # dedicated KG relation-extraction model (Haiku), used minimally; None if
+        # unavailable (no key/credits) -> KG falls back to deterministic edges only
+        try:
+            self.kg_llm = get_kg_llm(self.cfg)
+        except Exception:
+            self.kg_llm = None
         # fresh portal: load the persisted live index if present (fast, no
         # re-extraction); otherwise replay inbox uploads once and persist.
         if fresh:
@@ -235,6 +241,10 @@ class System:
                 self._wire_structured_edges(did, fields)
         self.stores.structured.commit()
 
+        # KG: ONE Haiku call -> entity<->entity relations from the prose (minimal
+        # paid-model use; everything else above ran on the local model)
+        self._wire_relations(did, cdoc.clean_text, cdoc.entities)
+
         # refresh retriever doc-text cache so reranking sees the new doc
         _p("finalizing", 0.99)
         self.retriever = Retriever(self.cfg, self.stores)
@@ -290,6 +300,49 @@ class System:
             for rec in self.stores.structured.query(tbl):
                 total += self._wire_structured_edges(rec.source_doc_id or tbl, rec.fields)
         return {"edges_added": total}
+
+    def _wire_relations(self, did: str, text: str, entity_ids) -> int:
+        """ONE Haiku call -> entity<->entity edges from prose (grounded to known
+        entities). No-op if the KG model is unavailable."""
+        if self.kg_llm is None:
+            return 0
+        from ..ingestion.relations import extract_relations
+        n = 0
+        for s, r, o in extract_relations(text, list(entity_ids), self.kg_llm):
+            self._ensure_entity_node(did, s)
+            self._ensure_entity_node(did, o)
+            self.stores.graph.add_edge(Edge(src=s, rel=r, dst=o,
+                                            source_doc_id=did, trust=0.9))
+            n += 1
+        return n
+
+    def enrich_graph_with_relations(self) -> dict:
+        """One-off: KG relation extraction (Haiku, 1 capped call/doc) over existing
+        docs -> entity<->entity edges from their prose. Minimal Haiku usage."""
+        if self.kg_llm is None:
+            return {"error": "KG model unavailable (no ANTHROPIC_API_KEY/credits)",
+                    "edges_added": 0}
+        id_index = {u: i for i, u in enumerate(self.stores.text.ids)}
+        total = docs = 0
+        for did in list(self.stores.doc_ids):
+            ents = []
+            for e in self.stores.graph.neighbors(did):
+                other = e.dst if e.src == did else e.src
+                if other != did:
+                    ents.append(other)
+            ents = list(dict.fromkeys(ents))
+            if len(ents) < 2:
+                continue
+            text = "\n".join(
+                self.stores.text.texts[id_index[u]]
+                for u in self.stores.text.ids
+                if self.stores.parent_of.get(u, u) == did
+                and self.stores.text.meta[id_index[u]].get("kind") == "chunk")
+            total += self._wire_relations(did, text, ents)
+            docs += 1
+        if self.fresh:
+            self._save_live()
+        return {"docs_processed": docs, "edges_added": total}
 
     def remove_document(self, doc_id: str) -> dict:
         """Remove a document from the live stores (text units + Qdrant vectors +

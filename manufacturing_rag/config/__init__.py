@@ -83,6 +83,7 @@ class Models:
     embedding_dim: int = 3072
     reranker: str = "llm"
     llm: str = "gpt-4o"
+    kg_llm: str = "claude-haiku-4-5"          # dedicated KG relation-extraction model (used minimally)
     vector_store: str = "qdrant"              # flat (in-memory) | qdrant (persistent DB)
     graph_store: str = "memory"               # memory (in-memory+JSON) | neo4j (persistent DB)
     temperature: float = 0.0                  # spec: every LLM step at temp 0
