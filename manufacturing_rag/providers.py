@@ -285,6 +285,7 @@ class OllamaLLM(LLM):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         body = {"model": self.model, "messages": messages, "stream": False,
+                "keep_alive": -1,          # pin in memory once activated
                 "options": {"temperature": temperature, "num_predict": self.num_predict}}
         data = self._post("/api/chat", body)
         return (data.get("message") or {}).get("content", "")
@@ -325,7 +326,7 @@ class OllamaEmbedder(Embedder):
             return [self._embed_one(t) for t in texts]   # older Ollama fallback
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        body = {"model": self.model, "input": texts}
+        body = {"model": self.model, "input": texts, "keep_alive": -1}
         req = urllib.request.Request(
             self.host + "/api/embed", data=json.dumps(body).encode("utf-8"),
             method="POST", headers={"Content-Type": "application/json"})

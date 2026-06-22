@@ -1,15 +1,15 @@
 {
-  "_comment": "Always hosted: OpenAI embeddings (text-embedding-3-large) + GPT-4o LLM + Qdrant vector DB. Set OPENAI_API_KEY and ANTHROPIC_API_KEY env vars before running.",
+  "_comment": "LOCAL via Ollama: nomic-embed-text (768-d) + qwen2.5:7b + Qdrant + Neo4j. Free, no API key. Requires Ollama running (CPU mode on this machine: setx OLLAMA_LLM_LIBRARY cpu). Activate models from the portal button before chat/ingestion. To go back to cloud: set llm/embeddings to gpt-4o / openai:text-embedding-3-large and embedding_dim 3072.",
   "models": {
     "provider_mode": "hosted",
-    "embeddings": "openai:text-embedding-3-large",
-    "embedding_dim": 3072,
+    "embeddings": "ollama:nomic-embed-text",
+    "embedding_dim": 768,
     "reranker": "llm",
-    "llm": "gpt-4o",
+    "llm": "ollama:qwen2.5:7b",
     "vector_store": "qdrant",
     "graph_store": "neo4j",
     "temperature": 0.0,
-    "self_consistency_n": 3
+    "self_consistency_n": 1
   },
   "thresholds": {
     "recall_ks": [1, 3, 5, 10],

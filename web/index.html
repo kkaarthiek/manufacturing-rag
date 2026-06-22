@@ -15,9 +15,16 @@
       <button class="nav-btn" data-view="data">🗂 Ingested Data</button>
     </nav>
     <div class="rail-foot">
+      <div id="modelBox" class="model-box">
+        <div class="model-row">
+          <span id="modelDot" class="model-dot off"></span>
+          <span id="modelLabel" class="tiny">models: checking…</span>
+        </div>
+        <button id="activateBtn" class="btn primary act-btn" style="display:none">⚡ Activate models</button>
+      </div>
       <div id="docCount" class="muted">— seed docs</div>
       <div id="ingCount" class="muted">— ingested</div>
-      <div class="muted tiny">stdlib · no external deps</div>
+      <div class="muted tiny">local · Ollama (qwen2.5 + nomic)</div>
     </div>
   </aside>
 
@@ -29,9 +36,9 @@
         <span class="badge" title="Backed by the manufacturing_rag pipeline">RAG pipeline</span>
         <div class="actions">
           <select id="chatMode" class="search" title="Answer mode">
-            <option value="hosted" selected>Answer (Claude Haiku)</option>
+            <option value="hosted" selected>Answer (qwen2.5 local)</option>
             <option value="agentic">Answer + agentic retrieval</option>
-            <option value="deterministic">Retrieve only (offline)</option>
+            <option value="deterministic">Retrieve only (no LLM)</option>
           </select>
         </div>
       </header>

@@ -26,6 +26,8 @@ const api = {
     body: JSON.stringify({ question, field, doc_id, mode: mode || "hosted" }),
   }).then((r) => r.json()),
   rawDoc: (doc_id) => fetch("/api/raw-doc?id=" + encodeURIComponent(doc_id)).then((r) => r.json()),
+  modelsStatus: () => fetch("/api/models-status").then((r) => r.json()),
+  activateModels: () => fetch("/api/activate-models", { method: "POST" }).then((r) => r.json()),
   upload: (file) => fetch("/api/upload", {
     method: "POST", headers: { "X-Filename": file.name }, body: file,
   }).then((r) => r.json()),
@@ -74,8 +76,55 @@ const STATUS_LABEL = {
   answered: ["✓ answered", "good"], abstained: ["⊘ abstained", "warn"],
   partial: ["◐ partial", "warn"], clarify: ["? needs clarification", "warn"],
   conflict: ["⚠ conflict — pick a source", "warn"],
+  models_inactive: ["⚡ models not active", "warn"],
   error: ["✕ error", "danger"], empty: ["—", "muted"],
 };
+
+// --------------------------------------------------------------------------
+// Local-model activation (Ollama)
+// --------------------------------------------------------------------------
+let MODELS_ACTIVE = false;
+
+async function refreshModelStatus() {
+  const dot = $("#modelDot"), label = $("#modelLabel"), btn = $("#activateBtn");
+  if (!dot) return;
+  let st;
+  try { st = await api.modelsStatus(); }
+  catch { label.textContent = "models: server unreachable"; return; }
+  MODELS_ACTIVE = !!st.active;
+  if (st.provider === "cloud") {
+    dot.className = "model-dot on"; label.textContent = "cloud models";
+    btn.style.display = "none"; return;
+  }
+  if (st.active) {
+    dot.className = "model-dot on";
+    label.textContent = "models active";
+    btn.style.display = "none";
+  } else {
+    dot.className = "model-dot off";
+    label.textContent = st.ollama_up === false ? "Ollama not running" : "models not loaded";
+    btn.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "⚡ Activate models";
+  }
+  btn.title = st.detail || "";
+}
+
+async function activateModels() {
+  const btn = $("#activateBtn"), label = $("#modelLabel");
+  btn.disabled = true; btn.textContent = "loading… (~30s)";
+  label.textContent = "loading qwen2.5 + nomic…";
+  let st;
+  try { st = await api.activateModels(); }
+  catch { btn.disabled = false; btn.textContent = "⚡ Activate models"; label.textContent = "activation failed"; return; }
+  await refreshModelStatus();
+  if (!st.active) toast(st.detail || "Activation failed — is Ollama running?");
+  else toast("Local models active ✓");
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "activateBtn") activateModels();
+});
 
 // Render a conflict card: both disputed values with their doc IDs + sources,
 // a "view raw" toggle per source, and a pick button that resolves + remembers.
@@ -160,6 +209,18 @@ async function sendChat(message) {
       html += `<div class="muted tiny">missing: ${escapeHtml(res.missing.join(", "))}</div>`;
     }
     thinking.innerHTML = html;
+    // models not loaded -> inline Activate & retry
+    if (res.status === "models_inactive") {
+      const b = document.createElement("button");
+      b.className = "btn primary act-btn";
+      b.textContent = "⚡ Activate models & retry";
+      b.addEventListener("click", async () => {
+        b.disabled = true; b.textContent = "loading… (~30s, first time)";
+        await activateModels();
+        if (MODELS_ACTIVE) sendChat(message);
+      });
+      thinking.appendChild(b);
+    }
     if (res.citations && res.citations.length) {
       const wrap = document.createElement("div");
       wrap.className = "cites";
@@ -409,3 +470,5 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEdito
 
 // --------------------------------------------------------------------------
 loadAll();
+refreshModelStatus();
+setInterval(refreshModelStatus, 30000);   // keep the status pill fresh

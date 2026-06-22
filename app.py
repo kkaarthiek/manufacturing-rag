@@ -18,8 +18,10 @@ first mutation).
 """
 
 import json
+import os
 import re
 import threading
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -156,6 +158,84 @@ def get_rag(hosted: bool = True):
         return _RAG["hosted"]
 
 
+# --------------------------------------------------------------------------- #
+# Local-model activation (Ollama): status + warm-load, so chat/ingestion can
+# require the models to be loaded and prompt the user to Activate them first.
+# --------------------------------------------------------------------------- #
+def _ollama_host():
+    return (os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+
+
+def _model_names(cfg):
+    """Configured Ollama model names (None for any lane that isn't ollama:*)."""
+    llm, emb = cfg.models.llm, cfg.models.embeddings
+    return (llm.split(":", 1)[1] if llm.startswith("ollama:") else None,
+            emb.split(":", 1)[1] if emb.startswith("ollama:") else None)
+
+
+def _ollama_get(route, timeout=5):
+    with urllib.request.urlopen(_ollama_host() + route, timeout=timeout) as r:
+        return json.load(r)
+
+
+def models_status():
+    """Is the local model stack ready? cloud => always active (no activation)."""
+    from manufacturing_rag.config import load_config
+    cfg = load_config()
+    llm_m, emb_m = _model_names(cfg)
+    needed = [m for m in (llm_m, emb_m) if m]
+    if not needed:
+        return {"provider": "cloud", "active": True,
+                "detail": "Cloud models — no activation needed."}
+    try:
+        tags = _ollama_get("/api/tags")
+    except Exception:
+        return {"provider": "ollama", "ollama_up": False, "active": False,
+                "needed": needed,
+                "detail": "Ollama isn't running. Start it (CPU mode), then Activate."}
+    base = lambda n: n.split(":")[0]
+    pulled = {m.get("name", "") for m in tags.get("models", [])}
+    pulled_base = {base(n) for n in pulled}
+    try:
+        loaded = {m.get("name", "") for m in _ollama_get("/api/ps").get("models", [])}
+    except Exception:
+        loaded = set()
+    loaded_base = {base(n) for n in loaded}
+    models = [{"name": m,
+               "pulled": m in pulled or base(m) in pulled_base,
+               "loaded": m in loaded or base(m) in loaded_base} for m in needed]
+    not_pulled = [x["name"] for x in models if not x["pulled"]]
+    active = all(x["loaded"] for x in models)
+    if not_pulled:
+        detail = "Not downloaded: " + ", ".join(not_pulled) + " — run `ollama pull <model>`."
+    elif not active:
+        detail = "Models downloaded but not loaded — click Activate (first load ~30s on CPU)."
+    else:
+        detail = "Local models active."
+    return {"provider": "ollama", "ollama_up": True, "active": active,
+            "models": models, "detail": detail}
+
+
+def activate_models():
+    """Warm-load (and pin via keep_alive=-1) the configured Ollama models."""
+    from manufacturing_rag.config import load_config
+    cfg = load_config()
+    llm_m, emb_m = _model_names(cfg)
+    if not (llm_m or emb_m):
+        return {"active": True, "provider": "cloud",
+                "detail": "Cloud models — no activation needed."}
+    from manufacturing_rag.providers import OllamaLLM, OllamaEmbedder
+    try:
+        if emb_m:
+            OllamaEmbedder(model=emb_m).embed(["warm"])
+        if llm_m:
+            OllamaLLM(model=llm_m).complete("ok")
+    except Exception as e:
+        return {"active": False, "error": str(e)[:200],
+                "detail": f"Activation failed: {str(e)[:160]}"}
+    return models_status()
+
+
 def _citation_view(rag, doc_ids):
     out = []
     for did in doc_ids:
@@ -172,6 +252,11 @@ def chat_answer(message, mode="hosted"):
     if not message.strip():
         return {"mode": mode, "status": "empty", "answer": "Ask a question.",
                 "citations": [], "claims": []}
+    st = models_status()
+    if not st.get("active"):
+        return {"mode": mode, "status": "models_inactive",
+                "answer": st.get("detail") or "Local models aren't active.",
+                "citations": [], "claims": [], "models": st}
     try:
         rag = get_rag()
         with _RAG_LOCK:                                 # serialize store access (sqlite)
@@ -290,6 +375,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ground_truth": list(load_ground_truth().values())})
         if path == "/api/ingest-status":
             return self._send(200, {"status": _INGEST_STATUS})
+        if path == "/api/models-status":
+            return self._send(200, models_status())
         if path == "/api/raw-doc":
             qs = parse_qs(urlparse(self.path).query)
             doc_id = (qs.get("id") or [""])[0]
@@ -331,6 +418,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, chat_answer(data.get("message", ""),
                                                data.get("mode", "hosted")))
 
+        if path == "/api/activate-models":
+            return self._send(200, activate_models())
+
         if path == "/api/resolve-conflict":
             data = self._json_body() or {}
             return self._send(200, resolve_conflict(
@@ -342,6 +432,10 @@ class Handler(BaseHTTPRequestHandler):
             raw = self._read_body()
             if not raw:
                 return self._send(400, {"error": "empty body"})
+            st = models_status()                         # ingestion needs the embedder loaded
+            if not st.get("active"):
+                return self._send(409, {"error": "models_inactive",
+                                        "detail": st.get("detail"), "models": st})
             with _LOCK:
                 ingested = load_ingested()
                 ids = {d["doc_id"] for d in load_corpus()} | {d["doc_id"] for d in ingested}
