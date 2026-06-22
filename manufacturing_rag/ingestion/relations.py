@@ -1,14 +1,16 @@
 """
-KG relation extraction (spec 6.4 triples) — Haiku, used MINIMALLY.
+KG extraction (spec 6.4) — Haiku, used MINIMALLY (one capped call per document).
 
-One capped LLM call per document turns prose into entity<->entity edges:
-given the entity IDs already resolved in a doc + a bounded slice of its text,
-extract the explicit (subject, relation, object) triples AMONG those entities.
+Turns prose into a real knowledge graph: in a single call, extract the salient
+NAMED entities (typed — person, organization, supplier, material, machine, part,
+component, standard, role, location, tool, document) AND the explicit
+relationships among them. Code IDs already resolved by pattern matching are
+passed as seeds so they're included.
 
-Cost control: a single call per doc, input capped, output validated against the
-known entity set (only relations between already-resolved entities ship — no new
-entities, no hallucinated IDs). This is the one place the (paid) Haiku model is
-used; everything else runs on the local model.
+Cost control: one call per doc, input capped. Grounding: an extracted entity is
+kept ONLY if its name appears VERBATIM in the source text (no hallucinated
+people/companies); a relation is kept only if both endpoints survived grounding.
+This is the one place the (paid) Haiku model runs — everything else is local.
 """
 
 from __future__ import annotations
@@ -16,49 +18,72 @@ from __future__ import annotations
 import json
 import re
 
+_TYPES = ("person", "organization", "supplier", "material", "machine", "part",
+          "component", "standard", "role", "location", "tool", "document", "program")
+
 _SYS = (
-    "You extract EXPLICIT relationships between manufacturing entities. "
-    "Output ONLY a compact JSON array of objects {\"s\":\"ID\",\"r\":\"RELATION\",\"o\":\"ID\"}. "
-    "Use ONLY the entity IDs given to you — never invent IDs. RELATION is a short "
-    "UPPERCASE token such as SUPPLIED_BY, USED_ON, REQUIRES, PART_OF, PERFORMED_ON, "
-    "REPLACES, LOCATED_ON, CONTROLS, INSPECTED_BY. Include a relation ONLY if the "
-    "text explicitly supports it. No prose, no markdown, no extra keys."
+    "You build a knowledge graph from manufacturing text. Output ONLY JSON: "
+    '{"entities":[{"name":"...","type":"<one of: ' + "|".join(_TYPES) + '>"}], '
+    '"relations":[{"s":"name","r":"RELATION","o":"name"}]}. '
+    "Rules: every entity 'name' MUST be a span that appears VERBATIM in the text "
+    "(people, companies, suppliers, materials, machines, parts, standards, roles, "
+    "locations — not generic words). RELATION is a short UPPERCASE token "
+    "(SUPPLIED_BY, MADE_OF, USED_ON, REQUIRES, APPROVED_BY, PERFORMED_BY, "
+    "PART_OF, GOVERNS, LOCATED_ON, INSPECTED_BY, REPLACES). Include a relation "
+    "ONLY if explicitly stated, using the exact entity names. No prose, no markdown."
 )
 
 
-def extract_relations(text: str, entity_ids: list[str], llm,
-                      max_chars: int = 4000, max_entities: int = 60) -> list[tuple]:
-    """Return [(s, REL, o)] triples among entity_ids, from ONE capped LLM call.
-    Empty if <2 entities, no text, or the call/parse fails (fail toward nothing)."""
-    ents = list(dict.fromkeys(e for e in entity_ids if e))      # dedupe, keep order
-    if len(ents) < 2 or not text:
-        return []
-    prompt = ("ENTITIES: " + ", ".join(ents[:max_entities])
+def extract_kg(text: str, llm, seed_ids=(), max_chars: int = 4500,
+               max_entities: int = 80) -> dict:
+    """One Haiku call -> {"entities": [(name, type)], "relations": [(s, REL, o)]}.
+    Grounded: entities must occur verbatim in text; relations must connect kept
+    entities. Returns empty structures on any failure (fail toward nothing)."""
+    out = {"entities": [], "relations": []}
+    if not text:
+        return out
+    seeds = list(dict.fromkeys(seed_ids))
+    prompt = ("Known code IDs (treat as entities too): "
+              + (", ".join(seeds[:60]) or "(none)")
               + "\n\nTEXT:\n" + text[:max_chars]
-              + "\n\nJSON array of explicit relations among those entities:")
+              + "\n\nJSON knowledge graph (entities + relations):")
     try:
-        out = llm.complete(prompt, system=_SYS, temperature=0.0)
+        raw = llm.complete(prompt, system=_SYS, temperature=0.0)
     except Exception:
-        return []
-    m = re.search(r"\[.*\]", out, re.S)
+        return out
+    m = re.search(r"\{.*\}", raw, re.S)
     if not m:
-        return []
+        return out
     try:
-        arr = json.loads(m.group(0))
+        obj = json.loads(m.group(0))
     except Exception:
-        return []
-    eset = set(ents)
-    triples, seen = [], set()
-    for t in arr if isinstance(arr, list) else []:
+        return out
+
+    low = text.lower()
+    kept = {}                                   # name -> type  (grounded entities)
+    # seeds are already pattern-grounded
+    for sid in seeds:
+        kept[sid] = "code"
+    for e in (obj.get("entities") or [])[:max_entities]:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("name", "")).strip()
+        etype = str(e.get("type", "entity")).strip().lower() or "entity"
+        if len(name) >= 2 and name.lower() in low:      # GROUNDING: verbatim in text
+            kept.setdefault(name, etype if etype in _TYPES else "entity")
+    names = set(kept)
+    rels, seen = [], set()
+    for t in (obj.get("relations") or []):
         if not isinstance(t, dict):
             continue
-        s, r, o = str(t.get("s", "")), str(t.get("r", "")), str(t.get("o", ""))
+        s, r, o = str(t.get("s", "")).strip(), str(t.get("r", "")), str(t.get("o", "")).strip()
         rel = re.sub(r"[^A-Z0-9]+", "_", r.upper()).strip("_")
-        # GROUNDING: both endpoints must be known entities; no self-loops
-        if s in eset and o in eset and s != o and rel and (s, rel, o) not in seen:
+        if s in names and o in names and s != o and rel and (s, rel, o) not in seen:
             seen.add((s, rel, o))
-            triples.append((s, rel, o))
-    return triples
+            rels.append((s, rel, o))
+    out["entities"] = [(n, ty) for n, ty in kept.items() if ty != "code"]
+    out["relations"] = rels
+    return out
 
 
-__all__ = ["extract_relations"]
+__all__ = ["extract_kg"]

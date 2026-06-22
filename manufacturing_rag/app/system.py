@@ -257,10 +257,10 @@ class System:
                 "ocr_used": rd.ocr_used, "flags": rd.flags,
                 "derived_units": derived, "indexed": True}
 
-    def _ensure_entity_node(self, did: str, eid: str):
-        """Make sure an entity ID is a graph node and the doc MENTIONS it."""
+    def _ensure_entity_node(self, did: str, eid: str, etype: str = "entity"):
+        """Make sure an entity ID/name is a graph node (typed) and the doc MENTIONS it."""
         if not self.stores.graph.has_node(eid):
-            self.stores.graph.add_entity(Entity(canonical_id=eid, type="entity",
+            self.stores.graph.add_entity(Entity(canonical_id=eid, type=etype,
                                                 source_links=[did]))
         self.stores.graph.add_edge(Edge(src=did, rel="MENTIONS", dst=eid,
                                         source_doc_id=did, trust=1.0))
@@ -302,15 +302,19 @@ class System:
         return {"edges_added": total}
 
     def _wire_relations(self, did: str, text: str, entity_ids) -> int:
-        """ONE Haiku call -> entity<->entity edges from prose (grounded to known
-        entities). No-op if the KG model is unavailable."""
+        """ONE Haiku call -> typed NAMED entities (person/org/material/…) + their
+        relations, grounded to the doc text. No-op if the KG model is unavailable."""
         if self.kg_llm is None:
             return 0
-        from ..ingestion.relations import extract_relations
+        from ..ingestion.relations import extract_kg
+        kg = extract_kg(text, self.kg_llm, seed_ids=list(entity_ids))
+        etype = dict((n, t) for n, t in kg["entities"])
+        for name, t in kg["entities"]:                  # add typed named-entity nodes
+            self._ensure_entity_node(did, name, t)
         n = 0
-        for s, r, o in extract_relations(text, list(entity_ids), self.kg_llm):
-            self._ensure_entity_node(did, s)
-            self._ensure_entity_node(did, o)
+        for s, r, o in kg["relations"]:
+            self._ensure_entity_node(did, s, etype.get(s, "entity"))
+            self._ensure_entity_node(did, o, etype.get(o, "entity"))
             self.stores.graph.add_edge(Edge(src=s, rel=r, dst=o,
                                             source_doc_id=did, trust=0.9))
             n += 1
