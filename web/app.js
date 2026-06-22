@@ -361,7 +361,14 @@ function renderFeed() {
 async function uploadFiles(files) {
   const added = [];
   for (const f of files) {
-    try { const r = await api.upload(f); if (r.doc) added.push({ ...r.doc, _file: f.name }); } catch (e) { /* skip */ }
+    try {
+      const r = await api.upload(f);
+      if (r && r.error === "models_inactive") {
+        toast("Activate models first (sidebar ⚡) before uploading.", true);
+        return;
+      }
+      if (r.doc) added.push({ ...r.doc, _file: f.name });
+    } catch (e) { /* skip */ }
   }
   await loadAll();
   if (added.length) pushFeed(added);
@@ -399,6 +406,7 @@ $("#ingestRawBtn").addEventListener("click", async () => {
   $("#ingestRawBtn").disabled = false;
 });
 const dz = $("#dropzone");
+dz.addEventListener("click", () => $("#fileInput").click());   // click anywhere to browse
 ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => {
   e.preventDefault(); dz.classList.add("drag");
 }));
@@ -406,6 +414,17 @@ const dz = $("#dropzone");
   e.preventDefault(); dz.classList.remove("drag");
 }));
 dz.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+
+// paste-to-add: turn pasted text into a document through the same upload pipeline
+$("#pasteAdd").addEventListener("click", () => {
+  const text = $("#pasteText").value.trim();
+  if (!text) { toast("Paste some text first.", true); return; }
+  let name = ($("#pasteName").value || "").trim();
+  if (!name) name = "pasted-" + Date.now() + ".txt";
+  if (!/\.[a-z0-9]+$/i.test(name)) name += ".txt";
+  uploadFiles([new File([text], name, { type: "text/plain" })]);
+  $("#pasteText").value = ""; $("#pasteName").value = "";
+});
 
 // --------------------------------------------------------------------------
 // Editor drawer

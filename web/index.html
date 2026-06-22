@@ -64,17 +64,23 @@
         <h1>Ingestion</h1>
         <div class="actions">
           <button id="ingestRawBtn" class="btn ghost" title="Run the ingester over the whole raw/ tree">⚙ Ingest raw/ tree</button>
-          <label class="btn primary">⬆ Upload files
-            <input id="fileInput" type="file" multiple hidden>
-          </label>
         </div>
       </header>
 
       <div class="ingest-intake">
+        <input id="fileInput" type="file" multiple hidden>
         <div id="dropzone" class="dropzone big">
-          <div class="dz-title">Drop files here to ingest</div>
+          <div class="dz-title">Drop files here — or click to browse</div>
           <div class="muted">PDF · XLSX · DOCX · CSV · HTML · EML · TXT · JSON — auto-parsed &amp; categorized</div>
         </div>
+
+        <div class="paste-box">
+          <div class="paste-head">…or paste text to add a document</div>
+          <input id="pasteName" class="search" type="text" placeholder="Document name (optional) — e.g. supplier-note.txt">
+          <textarea id="pasteText" rows="5" placeholder="Paste document text here…"></textarea>
+          <button id="pasteAdd" class="btn primary">＋ Add pasted document</button>
+        </div>
+
         <div id="toast" class="toast"></div>
 
         <div class="result-head">
