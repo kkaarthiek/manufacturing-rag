@@ -114,11 +114,18 @@ class System:
                 except Exception:
                     pass
 
-    def add_document(self, filename: str, raw: bytes) -> dict:
+    def add_document(self, filename: str, raw: bytes, progress=None) -> dict:
         """Incrementally ingest an uploaded file into the LIVE stores (spec 6.11):
         parse+classify+resolve -> add doc node + MENTIONS edges + text-index chunk
         (+ Haiku-derived propositions/questions when hosted). Idempotent, no rebuild.
-        After this returns, the chat can answer over the new document."""
+        After this returns, the chat can answer over the new document.
+        `progress(phase, frac)` is called with the current phase + overall [0,1]
+        fraction so callers can show a live status + ETA."""
+        def _p(phase, frac):
+            if progress:
+                try: progress(phase, max(0.0, min(1.0, frac)))
+                except Exception: pass
+        _p("parsing", 0.02)
         # RICH extraction: digital text + structured tables + image captions /
         # scanned-page OCR — robust to real-industry PDFs (spec 6.2/6.4)
         rd = rich_extract(filename, raw, vision_llm=self.llm, hosted=True,
@@ -165,6 +172,11 @@ class System:
                      "source_file": filename, "entities": cdoc.entities,
                      "trust": 1.0, "uploaded": True}
         chunks = chunk_text(cdoc.clean_text) or [cdoc.clean_text[:1200]]
+        n_extract = min(len(chunks), self.cfg.thresholds.ingest_extract_chunks)
+        # weighted work for ETA: embedding a chunk ~1 unit, extracting a chunk ~15
+        # (the LLM pass is far slower than an embed). +1 for parse already done.
+        total_w = len(chunks) * 1.0 + n_extract * 15.0 + 1.0
+        done_w = 1.0
         self.stores.doc_ids.add(did)
         self.stores.originals[did] = filename
         # the doc-level unit (id == did) holds the first chunk so the doc is a
@@ -172,11 +184,13 @@ class System:
         self.stores.text.add_unit(did, f"{did}\n{chunks[0]}",
                                   {**base_meta, "kind": "chunk", "parent": did})
         self.stores.parent_of[did] = did
+        done_w += 1; _p("embedding", done_w / total_w)
         for ci, ch in enumerate(chunks[1:], 1):
             cid = f"{did}::c{ci}"
             self.stores.text.add_unit(cid, ch,
                                       {**base_meta, "kind": "chunk", "parent": did})
             self.stores.parent_of[cid] = did
+            done_w += 1; _p("embedding", done_w / total_w)
 
         derived = 0
         # extraction pass over a CAPPED set of chunks (cost/context control)
@@ -196,6 +210,7 @@ class System:
                         self.stores.graph.add_edge(ed)
             except Exception:
                 pass
+            done_w += 15; _p("extracting", done_w / total_w)
 
         # structured tables -> per-row records (spec 6.4: tables -> per-row records
         # with header context). Exact, queryable; the markdown is also in the text.
@@ -211,6 +226,7 @@ class System:
         self.stores.structured.commit()
 
         # refresh retriever doc-text cache so reranking sees the new doc
+        _p("finalizing", 0.99)
         self.retriever = Retriever(self.cfg, self.stores)
         self.agent = AgenticRetriever(self.cfg, self.stores)
         if self.fresh:

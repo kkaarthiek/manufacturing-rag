@@ -99,14 +99,20 @@ def _relationship_edges(graph, rec):
 
 
 def _make_graph(cfg: Config):
-    """Return a Neo4jGraphStore when graph_store='neo4j', else in-memory GraphStore."""
+    """Return a Neo4jGraphStore when graph_store='neo4j', else in-memory GraphStore.
+    Falls back to in-memory if Neo4j is unreachable — a graph-DB outage must not
+    take down the whole system (fail toward functioning, not total failure)."""
     if getattr(cfg.models, "graph_store", "memory") != "neo4j":
         return GraphStore()
-    return Neo4jGraphStore(
-        uri=cfg.paths.neo4j_uri,
-        user=cfg.paths.neo4j_user,
-        password=cfg.paths.neo4j_password,
-    )
+    try:
+        return Neo4jGraphStore(
+            uri=cfg.paths.neo4j_uri,
+            user=cfg.paths.neo4j_user,
+            password=cfg.paths.neo4j_password,
+        )
+    except Exception as e:                       # connection refused / auth / etc.
+        print(f"[graph] Neo4j unavailable ({str(e)[:80]}); using in-memory graph")
+        return GraphStore()
 
 
 def _make_qdrant(cfg: Config, collection: str, persist: bool = True):

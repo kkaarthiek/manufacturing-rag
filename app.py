@@ -21,6 +21,7 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,7 +49,10 @@ def load_store(path):
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
-                docs.append(json.loads(line))
+                try:
+                    docs.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue          # skip a corrupt/partial line, never crash the store
     return docs
 
 
@@ -135,14 +139,26 @@ _INGEST_STATUS = {}  # filename -> {state, ...} (background ingestion progress)
 
 def _ingest_into_live(filename, raw):
     """Background: ingest an uploaded file into the live (hosted) pipeline —
-    rich extraction + CHUNKING + embeddings. Updates _INGEST_STATUS."""
-    _INGEST_STATUS[filename] = {"state": "processing",
-                                "detail": "extracting, chunking & embedding (may take a minute for large PDFs)"}
+    rich extraction + CHUNKING + embeddings. Updates _INGEST_STATUS live with
+    phase + progress fraction + ETA so the UI can show real-time status."""
+    started = time.time()
+    _INGEST_STATUS[filename] = {"state": "processing", "phase": "queued",
+                                "frac": 0.0, "elapsed_s": 0}
+
+    def prog(phase, frac):
+        el = time.time() - started
+        st = {"state": "processing", "phase": phase, "frac": round(frac, 3),
+              "elapsed_s": int(el)}
+        if frac > 0.02:
+            st["eta_s"] = max(0, int(el * (1 - frac) / frac))   # linear extrapolation
+        _INGEST_STATUS[filename] = st
+
     try:
         rag = get_rag()           # build empty hosted System if needed (fast)
-        with _RAG_LOCK:
-            res = rag.add_document(filename, raw)
-        _INGEST_STATUS[filename] = {"state": "done", **res}
+        with _RAG_LOCK:           # queued files wait here -> shown as 'queued'
+            res = rag.add_document(filename, raw, progress=prog)
+        _INGEST_STATUS[filename] = {"state": "done", **res,
+                                    "elapsed_s": int(time.time() - started)}
     except Exception as e:                    # fail toward a clear status, not silent
         _INGEST_STATUS[filename] = {"state": "error", "detail": str(e)}
 

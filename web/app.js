@@ -392,30 +392,40 @@ async function refreshIngestStatus() {
   let anyProcessing = false;
   const rows = names.reverse().map((n) => {
     const s = st[n] || {};
-    let badge, detail;
+    let badge, detail, bar = "";
     if (s.state === "processing") {
-      badge = `<span class="is-badge proc">⏳ processing</span>`;
-      detail = s.detail || "extracting + embedding…";
+      const pct = Math.round((s.frac || 0) * 100);
+      const eta = (s.eta_s != null) ? ` · ~${fmtSec(s.eta_s)} left` : "";
+      badge = `<span class="is-badge proc">⏳ ${escapeHtml(s.phase || "processing")}</span>`;
+      detail = `${pct}% · ${fmtSec(s.elapsed_s || 0)} elapsed${eta}`;
+      bar = `<div class="is-bar"><div class="is-bar-fill" style="width:${pct}%"></div></div>`;
       anyProcessing = true;
     } else if (s.state === "done") {
       badge = `<span class="is-badge done">✓ done</span>`;
-      detail = `${s.chunks || 0} chunks · ${s.tables || 0} tables · ${s.image_captions || 0} captions`;
+      detail = `${s.chunks || 0} chunks · ${s.tables || 0} tables · ${s.image_captions || 0} captions`
+             + (s.elapsed_s != null ? ` · ${fmtSec(s.elapsed_s)}` : "");
     } else if (s.state === "error") {
       badge = `<span class="is-badge err">✕ error</span>`;
       detail = s.detail || "";
     } else {
       badge = `<span class="is-badge">${escapeHtml(s.state || "")}</span>`; detail = "";
     }
-    return `<div class="is-row"><div class="is-name" title="${escapeHtml(n)}">${escapeHtml(n)}</div>`
-         + `${badge}<div class="is-detail">${escapeHtml(detail)}</div></div>`;
+    return `<div class="is-item"><div class="is-row">`
+         + `<div class="is-name" title="${escapeHtml(n)}">${escapeHtml(n)}</div>`
+         + `${badge}<div class="is-detail">${escapeHtml(detail)}</div></div>${bar}</div>`;
   }).join("");
   panel.innerHTML = `<div class="is-head">Ingestion status</div>` + rows;
   if (anyProcessing && !_ingestPoll) {
-    _ingestPoll = setInterval(refreshIngestStatus, 2500);
+    _ingestPoll = setInterval(refreshIngestStatus, 1500);   // real-time-ish
   } else if (!anyProcessing && _ingestPoll) {
     clearInterval(_ingestPoll); _ingestPoll = null;
     loadAll();   // all done -> refresh the live-docs count
   }
+}
+
+function fmtSec(s) {
+  s = Math.round(s || 0);
+  return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
 }
 $("#fileInput").addEventListener("change", (e) => uploadFiles(e.target.files));
 $("#gotoData").addEventListener("click", () => showView("data"));
