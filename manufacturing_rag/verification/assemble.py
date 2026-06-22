@@ -64,12 +64,15 @@ def _count_claim(stores, query, ents):
 
 def answer(query: str, stores) -> Answer:
     """Deterministic answer or calibrated abstention, with verified claims."""
-    # conflict-first: if the question lands on a genuinely-disputed field (two
-    # sources disagree, unresolved), surface both with their doc IDs + sources
-    # and let the user pick — never silently pick or fabricate one value (9.6).
-    from .conflict import detect_conflict, conflict_answer
-    cflag = detect_conflict(query, stores)
+    # conflict-first: if the question lands on a genuinely-disputed field, either
+    # answer from the source the user already chose (resolved), or surface both
+    # with their doc IDs + sources and let them pick — never silently pick or
+    # fabricate one value (9.6).
+    from .conflict import match_flag, conflict_answer, resolved_answer
+    cflag = match_flag(query, stores)
     if cflag:
+        if cflag.get("status") == "resolved" and cflag.get("chosen"):
+            return resolved_answer(query, stores, cflag)
         return conflict_answer(query, stores, cflag)
 
     d = decide(query, stores)

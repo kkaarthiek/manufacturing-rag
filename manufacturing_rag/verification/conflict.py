@@ -59,17 +59,24 @@ def _topic_relevant(flag: dict, query_low: str, stores) -> bool:
     return False
 
 
-def detect_conflict(query: str, stores) -> dict | None:
-    """Return the unresolved conflict flag this query lands on, or None.
+def match_flag(query: str, stores) -> dict | None:
+    """Return the conflict flag this query lands on (any status), or None.
     Precise by design: requires BOTH the conflicted field AND topic relevance."""
     low = query.lower()
     for flag in getattr(stores, "flags", None) or []:
-        if flag.get("status") != "unresolved":
-            continue
         if flag.get("resolution") != "flag_both":
             continue
         if _field_asked(flag.get("field", ""), low) and _topic_relevant(flag, low, stores):
             return flag
+    return None
+
+
+def detect_conflict(query: str, stores) -> dict | None:
+    """Return the UNRESOLVED conflict flag this query lands on, or None
+    (a flag the user has already resolved no longer surfaces — see resolved_answer)."""
+    flag = match_flag(query, stores)
+    if flag and flag.get("status") == "unresolved":
+        return flag
     return None
 
 
@@ -122,4 +129,40 @@ def conflict_answer(query: str, stores, flag: dict) -> Answer:
     )
 
 
-__all__ = ["detect_conflict", "conflict_answer"]
+def resolve_choice(stores, field: str, doc_id: str) -> dict | None:
+    """Record the user's source pick: mark the matching flag resolved + remember
+    the chosen doc, so future queries on this field answer from it directly
+    instead of re-prompting. Returns the updated flag, or None if not found."""
+    for flag in getattr(stores, "flags", None) or []:
+        if flag.get("field") == field and doc_id in (flag.get("values") or {}):
+            flag["status"] = "resolved"
+            flag["chosen"] = doc_id
+            return flag
+    return None
+
+
+def resolved_answer(query: str, stores, flag: dict) -> Answer:
+    """After a pick: answer the disputed field from the chosen source — a verbatim,
+    verified value cited to that doc, noting the rejected alternative(s)."""
+    from ..contracts import Claim
+    field = flag.get("field", "value")
+    label = field.replace("_", " ")
+    chosen = flag.get("chosen")
+    values = flag.get("values", {})
+    value = values.get(chosen)
+    others = [d for d in values if d != chosen]
+
+    claim = Claim(text=f"{label} = {value}", ctype="verbatim", value=value,
+                  operation={"field": field, "chosen_source": chosen,
+                             "rejected": others},
+                  citations=[chosen], verified=True)
+    note = f" (you chose {chosen} over {', '.join(others)})" if others else ""
+    return Answer(
+        text=f"{label}: {value} — per {chosen}.{note}",
+        claims=[claim], status="answered", missing=[],
+        trace={"conflict_resolved": {"field": field, "chosen": chosen,
+                                     "value": value, "rejected": others}})
+
+
+__all__ = ["match_flag", "detect_conflict", "conflict_answer",
+           "resolve_choice", "resolved_answer"]

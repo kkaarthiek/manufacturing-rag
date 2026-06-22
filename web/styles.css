@@ -82,6 +82,34 @@ main { flex: 1; min-width: 0; position: relative; }
 .cite .cid { font-weight: 600; color: var(--accent); }
 .cite .ct { font-size: 11px; color: var(--muted); }
 .cite .cs { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* conflict pick-a-source card */
+.conflict-card { margin-top: 12px; border: 1px solid rgba(210,153,34,.45);
+  border-radius: var(--radius); background: rgba(210,153,34,.06); overflow: hidden; }
+.conflict-head { padding: 10px 14px; font-size: 13px; color: var(--warn);
+  border-bottom: 1px solid rgba(210,153,34,.25); background: rgba(210,153,34,.10); }
+.conflict-opt { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.conflict-opt:last-child { border-bottom: 0; }
+.conflict-val { font-size: 14px; }
+.conflict-val .cid { font-weight: 600; color: var(--accent); font-size: 12px; }
+.conflict-val .ct { font-size: 11px; color: var(--muted); }
+.conflict-note { font-size: 11px; color: var(--warn); }
+.conflict-actions { display: flex; gap: 8px; flex: none; }
+.btn-pick { background: var(--accent); border: 0; color: #fff; padding: 7px 14px;
+  border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-pick:hover { background: var(--accent2); }
+.btn-pick:disabled { opacity: .5; cursor: default; }
+.btn-raw { background: transparent; border: 1px solid var(--line); color: var(--muted);
+  padding: 7px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.btn-raw:hover { color: var(--txt); border-color: var(--accent); }
+.btn-raw:disabled { opacity: .5; cursor: default; }
+.conflict-opt pre.raw { flex-basis: 100%; margin: 8px 0 0; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted);
+  white-space: pre-wrap; max-height: 240px; overflow: auto; }
+.conflict-resolved { padding: 12px 14px; border-top: 1px solid rgba(63,185,80,.3);
+  background: rgba(63,185,80,.06); font-size: 14px; }
 .chat-input { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line); }
 .chat-input input { flex: 1; background: var(--panel2); border: 1px solid var(--line);
   color: var(--txt); padding: 12px 14px; border-radius: 10px; font-size: 14px; }

@@ -21,6 +21,11 @@ const api = {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, mode }),
   }).then((r) => r.json()),
+  resolveConflict: (question, field, doc_id, mode) => fetch("/api/resolve-conflict", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, field, doc_id, mode: mode || "hosted" }),
+  }).then((r) => r.json()),
+  rawDoc: (doc_id) => fetch("/api/raw-doc?id=" + encodeURIComponent(doc_id)).then((r) => r.json()),
   upload: (file) => fetch("/api/upload", {
     method: "POST", headers: { "X-Filename": file.name }, body: file,
   }).then((r) => r.json()),
@@ -68,8 +73,63 @@ function addMsg(text, who) {
 const STATUS_LABEL = {
   answered: ["✓ answered", "good"], abstained: ["⊘ abstained", "warn"],
   partial: ["◐ partial", "warn"], clarify: ["? needs clarification", "warn"],
+  conflict: ["⚠ conflict — pick a source", "warn"],
   error: ["✕ error", "danger"], empty: ["—", "muted"],
 };
+
+// Render a conflict card: both disputed values with their doc IDs + sources,
+// a "view raw" toggle per source, and a pick button that resolves + remembers.
+function renderConflict(container, question, conflict) {
+  const card = document.createElement("div");
+  card.className = "conflict-card";
+  const field = (conflict.field || "value").replace(/_/g, " ");
+  card.innerHTML = `<div class="conflict-head">⚠ Sources disagree on `
+    + `<b>${escapeHtml(field)}</b> — choose which to trust:</div>`;
+  (conflict.options || []).forEach((o) => {
+    const row = document.createElement("div");
+    row.className = "conflict-opt";
+    const note = o.note ? ` <span class="conflict-note">(${escapeHtml(o.note)})</span>` : "";
+    const head = document.createElement("div");
+    head.className = "conflict-val";
+    head.innerHTML = `<b>${escapeHtml(String(o.value))}</b>${note}<br>`
+      + `<span class="cid">${escapeHtml(o.doc_id)}</span>`
+      + (o.source_file ? ` <span class="ct">· ${escapeHtml(o.source_file)}</span>` : "");
+    const acts = document.createElement("div");
+    acts.className = "conflict-actions";
+    const pick = document.createElement("button");
+    pick.className = "btn-pick"; pick.textContent = "Use this source";
+    pick.addEventListener("click", () => pickSource(card, question, conflict.field, o.doc_id));
+    const raw = document.createElement("button");
+    raw.className = "btn-raw"; raw.textContent = "view raw";
+    raw.addEventListener("click", () => toggleRaw(row, o.doc_id));
+    acts.appendChild(pick); acts.appendChild(raw);
+    row.appendChild(head); row.appendChild(acts);
+    card.appendChild(row);
+  });
+  container.appendChild(card);
+}
+
+async function pickSource(card, question, field, doc_id) {
+  card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  const res = await api.resolveConflict(question, field, doc_id);
+  const out = document.createElement("div");
+  out.className = "conflict-resolved";
+  out.innerHTML = `<span class="status-pill good">✓ resolved</span> ` + mdLite(res.answer || "")
+    + `<div class="muted tiny">remembered — future answers use `
+    + `${escapeHtml(doc_id)} for this field</div>`;
+  card.appendChild(out);
+}
+
+async function toggleRaw(row, doc_id) {
+  const existing = row.querySelector("pre.raw");
+  if (existing) { existing.remove(); return; }
+  const d = await api.rawDoc(doc_id);
+  const pre = document.createElement("pre");
+  pre.className = "raw";
+  pre.textContent = d.error ? ("error: " + d.error)
+    : (d.source_file ? d.source_file + "\n\n" : "") + (d.text || "(empty)");
+  row.appendChild(pre);
+}
 async function sendChat(message) {
   if (!message.trim()) return;
   addMsg(message, "user");
@@ -112,6 +172,11 @@ async function sendChat(message) {
         wrap.appendChild(el);
       });
       thinking.appendChild(wrap);
+    }
+    // conflict: render the pick-a-source card
+    if (res.conflict) {
+      renderConflict(thinking, message, res.conflict);
+      $("#chatLog").scrollTop = $("#chatLog").scrollHeight;
     }
   } catch (e) { thinking.innerHTML = "Error contacting server."; }
 }

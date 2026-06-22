@@ -185,12 +185,56 @@ def chat_answer(message, mode="hosted"):
                "verified": cl.verified} for cl in a.claims]
     plan = [{"step": s.get("step"), "verified": s.get("verified")}
             for s in (a.trace.get("subtasks") or [])]
-    return {"mode": mode, "status": a.status, "answer": a.text,
-            "citations": _citation_view(rag, cite_ids), "claims": claims,
-            "missing": a.missing, "plan": plan,
-            "trace_summary": {k: a.trace.get(k) for k in
-                              ("orchestration", "synthesis", "agentic_plan",
-                               "coverage", "entities") if k in a.trace}}
+    out = {"mode": mode, "status": a.status, "answer": a.text,
+           "citations": _citation_view(rag, cite_ids), "claims": claims,
+           "missing": a.missing, "plan": plan,
+           "trace_summary": {k: a.trace.get(k) for k in
+                             ("orchestration", "synthesis", "agentic_plan",
+                              "coverage", "entities") if k in a.trace}}
+    # conflict surfacing: hand the pick-options to the UI (doc_id, value, source, note)
+    if a.status == "conflict" and (a.trace or {}).get("conflict"):
+        out["conflict"] = a.trace["conflict"]
+    return out
+
+
+def resolve_conflict(question, field, doc_id, mode="hosted"):
+    """User picked a source for a disputed field. Record the choice (remember it),
+    then answer the question from that source. Returns a normal answer dict."""
+    try:
+        rag = get_rag()
+        from manufacturing_rag.verification.conflict import resolve_choice
+        with _RAG_LOCK:
+            flag = resolve_choice(rag.stores, field, doc_id)
+            if not flag:
+                return {"status": "error", "answer": f"No conflict on '{field}' with source {doc_id}.",
+                        "citations": [], "claims": []}
+            # re-answer: now resolved -> answers from the chosen source
+            a = rag.answer(question, mode="agentic" if mode == "agentic" else "deterministic")
+    except Exception as e:
+        return {"status": "error", "answer": f"Pipeline error: {e}", "citations": [], "claims": []}
+    cite_ids = sorted({c for cl in a.claims for c in (cl.citations or [])})
+    return {"status": a.status, "answer": a.text, "chosen": doc_id, "field": field,
+            "citations": _citation_view(rag, cite_ids),
+            "claims": [{"type": cl.ctype, "value": str(cl.value)[:80], "verified": cl.verified}
+                       for cl in a.claims]}
+
+
+def raw_doc(doc_id):
+    """Return the raw/indexed text of a document for the 'view raw' link."""
+    try:
+        rag = get_rag()
+        with _RAG_LOCK:
+            meta = rag.stores.text.get_meta(doc_id)
+            # gather every text unit belonging to this doc, in index order
+            parts = [rag.stores.text.texts[i]
+                     for i, u in enumerate(rag.stores.text.ids)
+                     if (rag.stores.parent_of.get(u, u) == doc_id
+                         and rag.stores.text.meta[i].get("kind") == "chunk")]
+            text = "\n".join(parts) or rag.retriever.doc_text(doc_id)
+            source = rag.stores.originals.get(doc_id) or meta.get("source_file", "")
+    except Exception as e:
+        return {"doc_id": doc_id, "error": str(e), "text": "", "source_file": ""}
+    return {"doc_id": doc_id, "source_file": source, "text": text[:4000]}
 
 
 # --------------------------------------------------------------------------- #
@@ -246,6 +290,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ground_truth": list(load_ground_truth().values())})
         if path == "/api/ingest-status":
             return self._send(200, {"status": _INGEST_STATUS})
+        if path == "/api/raw-doc":
+            qs = parse_qs(urlparse(self.path).query)
+            doc_id = (qs.get("id") or [""])[0]
+            if not doc_id:
+                return self._send(400, {"error": "missing id"})
+            return self._send(200, raw_doc(doc_id))
         if path == "/api/live-docs":
             # Non-blocking: if an ingestion holds the lock (large PDF embedding),
             # report 'ingesting' instead of hanging the request.
@@ -280,6 +330,12 @@ class Handler(BaseHTTPRequestHandler):
             data = self._json_body() or {}
             return self._send(200, chat_answer(data.get("message", ""),
                                                data.get("mode", "hosted")))
+
+        if path == "/api/resolve-conflict":
+            data = self._json_body() or {}
+            return self._send(200, resolve_conflict(
+                data.get("question", ""), data.get("field", ""),
+                data.get("doc_id", ""), data.get("mode", "hosted")))
 
         if path == "/api/upload":
             filename = self.headers.get("X-Filename", "upload.bin")
