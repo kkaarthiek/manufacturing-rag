@@ -248,9 +248,9 @@ class System:
                 return a
             # fall through to synthesis if the chain didn't resolve cleanly
 
-        # Phase 4 abstain-first + deterministic op
+        # Phase 4 abstain-first + deterministic op (+ conflict surfacing)
         det = deterministic_answer(query, self.stores)
-        if det.status in ("answered", "abstained"):
+        if det.status in ("answered", "abstained", "conflict"):
             return det
 
         # else: retrieve evidence (Phase 3) + grounded synthesis (Phase 4 / 9.2)

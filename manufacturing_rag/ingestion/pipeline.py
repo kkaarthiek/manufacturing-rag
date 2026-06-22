@@ -262,8 +262,13 @@ class Pipeline:
             text = C.fix_ocr(P.parse("txt", _read(rel)))
             self.docs[did] = _doc(did, "ncr", rel, "txt (OCR)", text,
                                   {"ocr_corrected": True}, entities=[did])
-        # conflict flag (never merge): units_affected differs 12 vs 21
+        # conflict flag (never merge): units_affected differs 12 vs 21.
+        # entities/keywords let the query-time conflict branch (verification/
+        # conflict.py) recognise a question that lands on this disputed field.
         flag = {"field": "units_affected", "values": {"NCR-7001": 12, "NCR-7004": 21},
+                "entities": ["NCR-7001", "NCR-7004", "PRT-2001"],
+                "keywords": ["drive shaft", "drive-shaft", "oversize",
+                             "non-conformance", "nonconformance"],
                 "resolution": "flag_both", "status": "unresolved"}
         self.flags.append(flag)
         self.docs["NCR-7004"].structured_fields["conflict"] = flag

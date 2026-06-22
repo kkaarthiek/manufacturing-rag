@@ -62,7 +62,7 @@ def _extract_all(cfg: Config, docs: dict, cache: Path | None):
 
 class Stores:
     def __init__(self, structured, graph, text, originals,
-                 alias_map=None, doc_ids=None, parent_of=None):
+                 alias_map=None, doc_ids=None, parent_of=None, flags=None):
         self.structured = structured
         self.graph = graph
         self.text = text
@@ -70,6 +70,7 @@ class Stores:
         self.alias_map = alias_map or {}    # surface form -> canonical ID (query resolution)
         self.doc_ids = doc_ids or set()     # the set of canonical doc IDs (vs entity IDs)
         self.parent_of = parent_of or {}    # unit_id -> parent doc_id
+        self.flags = flags or []            # unresolved conflict flags (query-time surfacing)
 
 
 def _relationship_edges(graph, rec):
@@ -211,7 +212,8 @@ def build_index(cfg: Config, persist: bool = False, derive: bool = False,
     doc_ids = {d for d in pipe.docs if d != ENTITY_GRAPH_ID}
     parent_of = {uid: (text.meta[i].get("parent") or uid) for i, uid in enumerate(text.ids)}
     stores = Stores(structured, graph, text, originals,
-                    alias_map=pipe.alias_map, doc_ids=doc_ids, parent_of=parent_of)
+                    alias_map=pipe.alias_map, doc_ids=doc_ids, parent_of=parent_of,
+                    flags=pipe.flags)
     return stores, {
         "doc_ids": list(doc_ids),
         "record_keys": [r.key for r in pipe.records],

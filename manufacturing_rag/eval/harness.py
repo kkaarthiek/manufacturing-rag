@@ -219,7 +219,9 @@ def run(strict: bool = False, hosted: bool = False, ragas: bool = False,
             a = vanswer(q["question"], stores)
             if q.get("answerable", True):
                 ans_n += 1
-                ans_ok += 1 if a.status in ("answered", "partial") else 0
+                # 'conflict' is the graded-correct outcome for conflict-resolution
+                # questions (e.g. Q035) — surfacing both sources, not asserting one.
+                ans_ok += 1 if a.status in ("answered", "partial", "conflict") else 0
                 det += 1 if a.status == "answered" else 0
             else:
                 abs_n += 1
