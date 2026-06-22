@@ -121,7 +121,8 @@ class Neo4jGraphStore:
             s.run(
                 "MERGE (n:Entity {canonical_id: $id}) "
                 "SET n.type = $type, n.aliases = $aliases, "
-                "    n.source_links = $sl, n.attrs = $attrs",
+                "    n.source_links = $sl, n.attrs = $attrs, "
+                "    n.name = $id",                       # name = caption shown in Neo4j Browser
                 id=e.canonical_id, type=e.type,
                 aliases=json.dumps(e.aliases),
                 sl=json.dumps(e.source_links),
