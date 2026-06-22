@@ -140,6 +140,21 @@ class TextIndex:
         n = len(self._tf)
         self._idf = {t: math.log(1 + (n - d + 0.5) / (d + 0.5)) for t, d in df.items()}
 
+    def remove(self, unit_ids: list[str]):
+        """Remove units by id (in-memory + Qdrant), then reindex BM25."""
+        idset = set(unit_ids)
+        if not idset:
+            return
+        if self._qdrant:
+            self._qdrant.delete([u for u in self.ids if u in idset])
+        keep = [i for i, u in enumerate(self.ids) if u not in idset]
+        self.ids = [self.ids[i] for i in keep]
+        self.texts = [self.texts[i] for i in keep]
+        self.meta = [self.meta[i] for i in keep]
+        if self.vecs:
+            self.vecs = [self.vecs[i] for i in keep]
+        self._reindex_bm25()
+
     def get_meta(self, unit_id: str) -> dict:
         return self.meta[self.ids.index(unit_id)] if unit_id in self.ids else {}
 

@@ -96,6 +96,14 @@ class QdrantVectorStore:
     def count(self) -> int:
         return self.client.count(self.collection).count
 
+    def delete(self, uids: list[str]):
+        """Delete points by their string uids (mapped to stable int ids)."""
+        from qdrant_client.models import PointIdsList
+        ids = [self._uid_to_int(u) for u in uids]
+        if ids:
+            self.client.delete(collection_name=self.collection,
+                               points_selector=PointIdsList(points=ids))
+
     @staticmethod
     def _uid_to_int(uid: str) -> int:
         """Stable unsigned 64-bit int from a string uid (Qdrant point ID)."""

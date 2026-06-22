@@ -237,6 +237,30 @@ class System:
                 "ocr_used": rd.ocr_used, "flags": rd.flags,
                 "derived_units": derived, "indexed": True}
 
+    def remove_document(self, doc_id: str) -> dict:
+        """Remove a document from the live stores (text units + Qdrant vectors +
+        graph mentions), then persist. Reverses add_document."""
+        unit_ids = [u for u in self.stores.text.ids
+                    if self.stores.parent_of.get(u, u) == doc_id]
+        self.stores.text.remove(unit_ids)
+        self.stores.doc_ids.discard(doc_id)
+        for u in unit_ids:
+            self.stores.parent_of.pop(u, None)
+        self.stores.originals.pop(doc_id, None)
+        # graph: drop the doc node + its MENTIONS edges (best-effort)
+        try:
+            g = self.stores.graph
+            if hasattr(g, "remove_node"):
+                g.remove_node(doc_id)
+        except Exception:
+            pass
+        self.retriever = Retriever(self.cfg, self.stores)
+        self.agent = AgenticRetriever(self.cfg, self.stores)
+        if self.fresh:
+            self._save_live()
+        return {"removed": doc_id, "units_removed": len(unit_ids),
+                "remaining": len(self.stores.doc_ids)}
+
     def live_docs(self) -> list:
         """Summary of every document the chat can answer over (for the UI)."""
         out = {}
