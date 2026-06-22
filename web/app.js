@@ -263,9 +263,11 @@ async function loadAll() {
   STATE.categories = ing.categories;
   STATE.docTypes = ing.doc_types;
   STATE.groundTruth = {};
-  const pipe = live.ingesting ? "ingesting…" : ((live.count || STATE.docs.length) + " in chat");
+  // "in chat" = the LIVE embedded index (what the chat actually retrieves from),
+  // NOT the draft catalog. Don't fall back to the draft count — that was misleading.
+  const pipe = live.ingesting ? "ingesting…" : ((live.count || 0) + " in chat (live)");
   $("#docCount").textContent = pipe;
-  $("#ingCount").textContent = STATE.docs.length + " uploaded";
+  $("#ingCount").textContent = STATE.docs.length + " catalogued (draft)";
   $("#dataBadge").textContent = STATE.docs.length + " documents";
   renderCats(); renderDocs(); fillTypeSelect();
 }
